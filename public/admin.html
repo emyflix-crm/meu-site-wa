@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin — WA Scheduler</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        :root {
+            --bg: #0a0e1a;
+            --bg2: #111827;
+            --bg3: #1a2235;
+            --card: #151f32;
+            --border: #1e2d45;
+            --primary: #25d366;
+            --text: #e2e8f0;
+            --text2: #94a3b8;
+            --text3: #64748b;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            --purple: #8b5cf6
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex
+        }
+
+        .sidebar {
+            width: 240px;
+            background: var(--bg2);
+            border-right: 1px solid var(--border);
+            padding: 24px 16px;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 28px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border)
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #25d366, #1aab51);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px
+        }
+
+        .logo-text {
+            font-size: 15px;
+            font-weight: 700
+        }
+
+        .logo-sub {
+            font-size: 10px;
+            color: var(--text3)
+        }
+
+        .nav {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 14px;
+            border-radius: 9px;
+            color: var(--text2);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all .2s
+        }
+
+        .nav-item:hover {
+            background: var(--bg3);
+            color: var(--text)
+        }
+
+        .nav-item.active {
+            background: rgba(37, 211, 102, .12);
+            color: var(--primary);
+            border: 1px solid rgba(37, 211, 102, .2)
+        }
+
+        .logout-btn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 14px;
+            border-radius: 9px;
+            color: var(--danger);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            background: rgba(239, 68, 68, .08);
+            border: 1px solid rgba(239, 68, 68, .15);
+            margin-top: 8px
+        }
+
+        .logout-btn:hover {
+            background: var(--danger);
+            color: white
+        }
+
+        .main {
+            flex: 1;
+            overflow-y: auto;
+            height: 100vh;
+            padding: 32px
+        }
+
+        .page {
+            display: none
+        }
+
+        .page.active {
+            display: block
+        }
+
+        .page-header {
+            margin-bottom: 24px
+        }
+
+        .page-header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff, var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 4px
+        }
+
+        .page-header p {
+            font-size: 13px;
+            color: var(--text2)
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 24px
+        }
+
+        .stat-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px;
+            text-align: center
+        }
+
+        .stat-icon {
+            font-size: 24px;
+            margin-bottom: 6px
+        }
+
+        .stat-number {
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--primary)
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text2);
+            margin-top: 2px
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+            margin-bottom: 18px
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 22px;
+            border-bottom: 1px solid var(--border)
+        }
+
+        .card-header h2 {
+            font-size: 16px;
+            font-weight: 600
+        }
+
+        .card-body {
+            padding: 22px
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse
+        }
+
+        th {
+            text-align: left;
+            padding: 12px 22px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text3);
+            text-transform: uppercase;
+            letter-spacing: .5px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg2)
+        }
+
+        td {
+            padding: 12px 22px;
+            font-size: 13px;
+            border-bottom: 1px solid rgba(30, 45, 69, .5)
+        }
+
+        tr:hover td {
+            background: var(--bg3)
+        }
+
+        tr:last-child td {
+            border-bottom: none
+        }
+
+        .plan-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600
+        }
+
+        .plan-trial {
+            background: rgba(245, 158, 11, .1);
+            color: var(--warning);
+            border: 1px solid rgba(245, 158, 11, .2)
+        }
+
+        .plan-monthly {
+            background: rgba(59, 130, 246, .1);
+            color: var(--info);
+            border: 1px solid rgba(59, 130, 246, .2)
+        }
+
+        .plan-semiannual {
+            background: rgba(139, 92, 246, .1);
+            color: var(--purple);
+            border: 1px solid rgba(139, 92, 246, .2)
+        }
+
+        .plan-annual {
+            background: rgba(37, 211, 102, .1);
+            color: var(--primary);
+            border: 1px solid rgba(37, 211, 102, .2)
+        }
+
+        .plan-unlimited {
+            background: rgba(37, 211, 102, .15);
+            color: var(--primary);
+            border: 1px solid rgba(37, 211, 102, .3)
+        }
+
+        .inst-badge {
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            color: var(--text2);
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-family: monospace
+        }
+
+        .btn {
+            padding: 7px 14px;
+            border-radius: 7px;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            transition: all .2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: #000
+        }
+
+        .btn-primary:hover {
+            background: #1aab51;
+            transform: translateY(-1px)
+        }
+
+        .btn-secondary {
+            background: var(--bg3);
+            color: var(--text);
+            border: 1px solid var(--border)
+        }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, .1);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, .2)
+        }
+
+        .btn-danger:hover {
+            background: var(--danger);
+            color: white
+        }
+
+        .btn-warn {
+            background: rgba(245, 158, 11, .1);
+            color: var(--warning);
+            border: 1px solid rgba(245, 158, 11, .2)
+        }
+
+        .btn-info {
+            background: rgba(59, 130, 246, .1);
+            color: var(--info);
+            border: 1px solid rgba(59, 130, 246, .2)
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100
+        }
+
+        .modal-overlay.open {
+            display: flex
+        }
+
+        .modal {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            width: 460px;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow-y: auto
+        }
+
+        .modal h3 {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 6px
+        }
+
+        .modal-sub {
+            font-size: 12px;
+            color: var(--text3);
+            margin-bottom: 20px
+        }
+
+        .field {
+            margin-bottom: 14px
+        }
+
+        .field label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text2);
+            margin-bottom: 5px
+        }
+
+        .field input,
+        .field select {
+            width: 100%;
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--text);
+            font-size: 13px;
+            font-family: 'Inter', sans-serif;
+            outline: none
+        }
+
+        .field input:focus,
+        .field select:focus {
+            border-color: var(--primary)
+        }
+
+        .field-hint {
+            font-size: 11px;
+            color: var(--text3);
+            margin-top: 4px
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px 18px;
+            font-size: 13px;
+            font-weight: 500;
+            transform: translateY(80px);
+            opacity: 0;
+            transition: all .3s;
+            z-index: 200
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1
+        }
+
+        .toast.ok {
+            border-color: var(--primary);
+            color: var(--primary)
+        }
+
+        .toast.err {
+            border-color: var(--danger);
+            color: var(--danger)
+        }
+
+        .empty {
+            padding: 40px;
+            text-align: center;
+            color: var(--text3);
+            font-size: 13px
+        }
+
+        .plans-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-top: 20px
+        }
+
+        .plan-card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 22px;
+            text-align: center;
+            position: relative
+        }
+
+        .plan-card.popular {
+            border-color: var(--primary);
+            background: rgba(37, 211, 102, .04)
+        }
+
+        .popular-tag {
+            position: absolute;
+            top: -11px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary);
+            color: #000;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 14px;
+            border-radius: 20px
+        }
+
+        .plan-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text2);
+            margin-bottom: 6px
+        }
+
+        .plan-price {
+            font-size: 34px;
+            font-weight: 800;
+            color: var(--primary);
+            margin-bottom: 3px
+        }
+
+        .plan-period {
+            font-size: 12px;
+            color: var(--text3);
+            margin-bottom: 12px
+        }
+
+        .admin-badge {
+            background: rgba(37, 211, 102, .1);
+            color: var(--primary);
+            border: 1px solid rgba(37, 211, 102, .2);
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px
+        }
+
+        .backup-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px
+        }
+
+        .backup-card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all .2s
+        }
+
+        .backup-card:hover {
+            border-color: var(--primary);
+            background: rgba(37, 211, 102, .04);
+            transform: translateY(-2px)
+        }
+
+        .backup-icon {
+            font-size: 32px;
+            margin-bottom: 10px
+        }
+
+        .backup-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px
+        }
+
+        .backup-desc {
+            font-size: 12px;
+            color: var(--text3)
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px
+        }
+
+        .status-connected {
+            background: var(--primary);
+            box-shadow: 0 0 6px var(--primary)
+        }
+
+        .status-disconnected {
+            background: var(--danger)
+        }
+
+        .status-unknown {
+            background: var(--text3)
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="sidebar">
+        <div class="logo">
+            <div class="logo-icon">💬</div>
+            <div>
+                <div class="logo-text">WA Scheduler</div>
+                <div class="logo-sub">Admin Panel</div>
+            </div>
+        </div>
+        <nav class="nav">
+            <div class="nav-item active" id="nav-users" onclick="showPage('users',this)">👥 Usuários</div>
+            <div class="nav-item" id="nav-plans" onclick="showPage('plans',this)">📦 Planos</div>
+            <div class="nav-item" id="nav-backup" onclick="showPage('backup',this)">💾 Backup</div>
+            <div class="nav-item" onclick="window.open('/app.html','_blank')">⚡ Scheduler</div>
+        </nav>
+        <div id="admin-info"
+            style="margin-top:auto;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;font-size:12px;margin-bottom:8px">
+            <div style="color:var(--text3)">Conectado como</div>
+            <div style="font-weight:600" id="admin-name">Admin</div>
+            <span class="admin-badge">ADMIN</span>
+        </div>
+        <div class="logout-btn" onclick="logout()">🚪 Sair</div>
+    </div>
+
+    <div class="main">
+        <!-- USERS -->
+        <div id="page-users" class="page active">
+            <div class="page-header">
+                <h1>Gerenciar Clientes</h1>
+                <p>Cada cliente tem seu próprio WhatsApp conectado — isolado dos demais</p>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">👥</div>
+                    <div class="stat-number" id="stat-total">0</div>
+                    <div class="stat-label">Total</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-number" id="stat-active">0</div>
+                    <div class="stat-label">Ativos</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">⏰</div>
+                    <div class="stat-number" id="stat-expired">0</div>
+                    <div class="stat-label">Expirados</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">💰</div>
+                    <div class="stat-number" id="stat-revenue">R$0</div>
+                    <div class="stat-label">Receita Est.</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Clientes</h2>
+                    <button class="btn btn-primary" onclick="openCreateModal()">+ Novo Cliente</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nome</th>
+                            <th>E-mail</th>
+                            <th>Instância</th>
+                            <th>Plano</th>
+                            <th>Expira</th>
+                            <th>Status</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table">
+                        <tr>
+                            <td colspan="7" class="empty">Carregando...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- PLANS -->
+        <div id="page-plans" class="page">
+            <div class="page-header">
+                <h1>Planos</h1>
+                <p>Preços sugeridos para cada plano de acesso</p>
+            </div>
+            <div class="card" style="padding:16px 22px;margin-bottom:18px">
+                <p style="font-size:13px;color:var(--text2)">💡 Você cobra o cliente diretamente (Pix, WhatsApp etc.) e
+                    cria a conta aqui após o pagamento.</p>
+            </div>
+            <div class="plans-grid">
+                <div class="plan-card">
+                    <div class="plan-name">⚡ Trial</div>
+                    <div class="plan-price" style="font-size:22px">Grátis</div>
+                    <div class="plan-period">7 dias de teste</div>
+                </div>
+                <div class="plan-card">
+                    <div class="plan-name">📅 Mensal</div>
+                    <div class="plan-price">R$29<span style="font-size:16px">,90</span></div>
+                    <div class="plan-period">por mês</div>
+                </div>
+                <div class="plan-card popular">
+                    <div class="popular-tag">⭐ POPULAR</div>
+                    <div class="plan-name">📆 Semestral</div>
+                    <div class="plan-price">R$149<span style="font-size:16px">,90</span></div>
+                    <div class="plan-period">6 meses</div>
+                </div>
+                <div class="plan-card">
+                    <div class="plan-name">🏆 Anual</div>
+                    <div class="plan-price">R$249<span style="font-size:16px">,90</span></div>
+                    <div class="plan-period">12 meses</div>
+                </div>
+                <div class="plan-card"
+                    style="grid-column:span 2;border-color:var(--primary);background:rgba(37,211,102,.04)">
+                    <div class="plan-name">♾️ Ilimitado</div>
+                    <div class="plan-price" style="font-size:22px">Sem expiração</div>
+                    <div class="plan-period">Para admin e contas especiais</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- BACKUP -->
+        <div id="page-backup" class="page">
+            <div class="page-header">
+                <h1>Backup de Dados</h1>
+                <p>Exporte os dados do sistema para não perder nada</p>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Exportar</h2>
+                </div>
+                <div class="card-body">
+                    <div class="backup-grid">
+                        <div class="backup-card" onclick="downloadBackup()">
+                            <div class="backup-icon">📦</div>
+                            <div class="backup-title">Backup Completo</div>
+                            <div class="backup-desc">Agendamentos + histórico + usuários em JSON</div>
+                        </div>
+                        <div class="backup-card" onclick="downloadCSV('schedules')">
+                            <div class="backup-icon">📋</div>
+                            <div class="backup-title">Agendamentos CSV</div>
+                            <div class="backup-desc">Lista de todos os agendamentos (Excel)</div>
+                        </div>
+                        <div class="backup-card" onclick="downloadCSV('history')">
+                            <div class="backup-icon">📊</div>
+                            <div class="backup-title">Histórico CSV</div>
+                            <div class="backup-desc">Histórico de mensagens enviadas (Excel)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Criar Usuário -->
+    <div class="modal-overlay" id="modal-create">
+        <div class="modal">
+            <h3>➕ Novo Cliente</h3>
+            <p class="modal-sub">Uma instância WhatsApp será criada automaticamente para este cliente</p>
+            <div class="field"><label>Nome completo</label><input type="text" id="new-name"
+                    placeholder="Nome do cliente"></div>
+            <div class="field"><label>E-mail (login)</label><input type="email" id="new-email"
+                    placeholder="email@cliente.com"></div>
+            <div class="field"><label>Senha inicial</label><input type="password" id="new-pass"
+                    placeholder="Mínimo 6 caracteres" minlength="6"></div>
+            <div class="field">
+                <label>Nome da Instância WhatsApp</label>
+                <input type="text" id="new-instance" placeholder="ex: joao-silva" oninput="formatInstance(this)">
+                <div class="field-hint">⚠️ Use apenas letras minúsculas, números e hífens. Ex: pedro-agencias,
+                    maria-produtos</div>
+            </div>
+            <div class="field">
+                <label>Plano</label>
+                <select id="new-plan">
+                    <option value="trial">⚡ Trial (7 dias) — Grátis</option>
+                    <option value="monthly">📅 Mensal (30 dias) — R$29,90</option>
+                    <option value="semiannual" selected>📆 Semestral (180 dias) — R$149,90</option>
+                    <option value="annual">🏆 Anual (365 dias) — R$249,90</option>
+                    <option value="unlimited">♾️ Ilimitado</option>
+                </select>
+            </div>
+            <div id="create-error"
+                style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#f87171;border-radius:8px;padding:10px 14px;font-size:12px;margin-bottom:14px;display:none">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('modal-create')">Cancelar</button>
+                <button class="btn btn-primary" id="create-btn" onclick="createUser()">✓ Criar Cliente</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Editar Usuário -->
+    <div class="modal-overlay" id="modal-edit">
+        <div class="modal">
+            <h3>✏️ Editar Cliente</h3>
+            <input type="hidden" id="edit-id">
+            <div class="field"><label>Nome</label><input type="text" id="edit-name"></div>
+            <div class="field"><label>Instância WhatsApp</label><input type="text" id="edit-instance">
+                <div class="field-hint">Mudando isso você terá que reconectar o WhatsApp do cliente</div>
+            </div>
+            <div class="field">
+                <label>Plano</label>
+                <select id="edit-plan">
+                    <option value="trial">⚡ Trial</option>
+                    <option value="monthly">📅 Mensal</option>
+                    <option value="semiannual">📆 Semestral</option>
+                    <option value="annual">🏆 Anual</option>
+                    <option value="unlimited">♾️ Ilimitado</option>
+                </select>
+            </div>
+            <div class="field"><label>Status</label>
+                <select id="edit-active">
+                    <option value="true">✅ Ativo</option>
+                    <option value="false">❌ Desativado</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>🔑 Nova Senha <span style="font-size:11px;color:var(--text3);font-weight:400">(deixe vazio para não alterar)</span></label>
+                <input type="password" id="edit-password" placeholder="Nova senha (mín. 8 caracteres)">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('modal-edit')">Cancelar</button>
+                <button class="btn btn-primary" onclick="saveEdit()">✓ Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        const token = localStorage.getItem('wa_token');
+        if (!token) window.location.href = '/login.html';
+
+        const planLabels = { trial: 'Trial', monthly: 'Mensal', semiannual: 'Semestral', annual: 'Anual', unlimited: 'Ilimitado' };
+        const planCls = { trial: 'plan-trial', monthly: 'plan-monthly', semiannual: 'plan-semiannual', annual: 'plan-annual', unlimited: 'plan-unlimited' };
+        const planPrices = { trial: 0, monthly: 29.90, semiannual: 149.90, annual: 249.90, unlimited: 0 };
+
+        function authFetch(url, opts = {}) {
+            return fetch(url, { ...opts, headers: { ...opts.headers, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' } });
+        }
+
+        function formatInstance(el) {
+            el.value = el.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/--+/g, '-');
+        }
+
+        async function loadUsers() {
+            const r = await authFetch('/admin/users');
+            if (r.status === 401) { logout(); return; }
+            const users = await r.json();
+            const now = new Date();
+            const active = users.filter(u => u.active && (u.plan === 'unlimited' || !u.plan_expires || new Date(u.plan_expires) > now));
+            const expired = users.filter(u => u.plan_expires && new Date(u.plan_expires) < now);
+            const revenue = users.reduce((s, u) => s + (planPrices[u.plan] || 0), 0);
+            document.getElementById('stat-total').textContent = users.length;
+            document.getElementById('stat-active').textContent = active.length;
+            document.getElementById('stat-expired').textContent = expired.length;
+            document.getElementById('stat-revenue').textContent = 'R$' + revenue.toFixed(0);
+            const me = JSON.parse(localStorage.getItem('wa_user') || '{}');
+            document.getElementById('admin-name').textContent = me.name || me.email;
+
+            const tbody = document.getElementById('users-table');
+            if (!users.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">Nenhum cliente criado</td></tr>'; return; }
+            tbody.innerHTML = users.map(u => {
+                const isExpired = u.plan_expires && new Date(u.plan_expires) < now;
+                const status = !u.active ? '❌ Inativo' : isExpired ? '⏰ Expirado' : '✅ Ativo';
+                const statusCls = !u.active ? 'status-inactive' : isExpired ? 'status-expired' : 'status-active';
+                const colors = { 'status-active': 'color:var(--primary)', 'status-expired': 'color:var(--danger)', 'status-inactive': 'color:var(--text3)' };
+                const expiry = u.plan_expires ? new Date(u.plan_expires).toLocaleDateString('pt-BR') : '—';
+                return `<tr>
+      <td><strong>${u.name}</strong>${u.role === 'admin' ? ` <span class="admin-badge">ADMIN</span>` : ''}</td>
+      <td style="color:var(--text2)">${u.email}</td>
+      <td><span class="inst-badge">${u.instance_name || '?'}</span></td>
+      <td><span class="plan-badge ${planCls[u.plan] || 'plan-trial'}">${planLabels[u.plan] || u.plan}</span></td>
+      <td style="color:var(--text2);font-size:12px">${expiry}</td>
+      <td style="${colors[statusCls] || ''}">${status}</td>
+      <td><div style="display:flex;gap:4px">
+        <button class="btn btn-secondary" onclick='openEditModal(${JSON.stringify(u)})' title="Editar">✏️</button>
+        ${u.role !== 'admin' ? `<button class="btn btn-danger" onclick="deleteUser('${u.id}')" title="Deletar">🗑️</button>` : ''}
+      </div></td>
+    </tr>`;
+            }).join('');
+        }
+
+        function showPage(page, el) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('page-' + page).classList.add('active');
+            if (el) el.classList.add('active');
+        }
+
+        function openCreateModal() {
+            document.getElementById('create-error').style.display = 'none';
+            document.getElementById('modal-create').classList.add('open');
+        }
+        function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+        async function createUser() {
+            const name = document.getElementById('new-name').value.trim();
+            const email = document.getElementById('new-email').value.trim();
+            const password = document.getElementById('new-pass').value;
+            const instance_name = document.getElementById('new-instance').value.trim();
+            const plan = document.getElementById('new-plan').value;
+            const errEl = document.getElementById('create-error');
+            errEl.style.display = 'none';
+            if (!name || !email || !password || !instance_name) { errEl.textContent = 'Preencha todos os campos'; errEl.style.display = 'block'; return; }
+            if (password.length < 6) { errEl.textContent = 'Senha deve ter ao menos 6 caracteres'; errEl.style.display = 'block'; return; }
+            const btn = document.getElementById('create-btn');
+            btn.disabled = true; btn.textContent = 'Criando instância...';
+            const r = await authFetch('/admin/users', { method: 'POST', body: JSON.stringify({ name, email, password, plan, instance_name }) });
+            const data = await r.json();
+            if (data.success) {
+                toast('✅ Cliente criado! Instância WhatsApp criada.', 'ok');
+                closeModal('modal-create');
+                document.getElementById('new-name').value = document.getElementById('new-email').value = document.getElementById('new-pass').value = document.getElementById('new-instance').value = '';
+                loadUsers();
+            } else { errEl.textContent = data.error || 'Erro'; errEl.style.display = 'block'; }
+            btn.disabled = false; btn.textContent = '✓ Criar Cliente';
+        }
+
+        function openEditModal(u) {
+            document.getElementById('edit-id').value = u.id;
+            document.getElementById('edit-name').value = u.name;
+            document.getElementById('edit-instance').value = u.instance_name || '';
+            document.getElementById('edit-plan').value = u.plan;
+            document.getElementById('edit-active').value = String(u.active);
+            document.getElementById('edit-password').value = '';
+            document.getElementById('modal-edit').classList.add('open');
+        }
+
+        async function saveEdit() {
+            const id = document.getElementById('edit-id').value;
+            const newPassword = document.getElementById('edit-password').value;
+            if (newPassword && newPassword.length < 8) {
+                toast('Senha deve ter pelo menos 8 caracteres', 'err'); return;
+            }
+            const body = {
+                name: document.getElementById('edit-name').value,
+                instance_name: document.getElementById('edit-instance').value,
+                plan: document.getElementById('edit-plan').value,
+                active: document.getElementById('edit-active').value === 'true'
+            };
+            const r = await authFetch(`/admin/users/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+            const data = await r.json();
+            if (!data.success) { toast(data.error || 'Erro', 'err'); return; }
+
+            // Se senha preenchida, redefinir
+            if (newPassword) {
+                const r2 = await authFetch(`/admin/users/${id}/reset-password`, {
+                    method: 'POST', body: JSON.stringify({ newPassword })
+                });
+                const d2 = await r2.json();
+                if (!d2.success) { toast(d2.error || 'Erro ao redefinir senha', 'err'); return; }
+                toast('✅ Salvo e senha redefinida!', 'ok');
+            } else {
+                toast('✅ Salvo!', 'ok');
+            }
+            closeModal('modal-edit'); loadUsers();
+        }
+
+        async function deleteUser(id) {
+            if (!confirm('Deletar este cliente? A instância WhatsApp dele será removida!')) return;
+            const r = await authFetch(`/admin/users/${id}`, { method: 'DELETE' });
+            const data = await r.json();
+            if (data.success) { toast('🗑️ Deletado', 'ok'); loadUsers(); }
+        }
+
+        function downloadBackup() {
+            const a = document.createElement('a');
+            a.href = `/admin/backup?t=${token}`; a.click();
+            // Since we can't pass auth header via <a> tag, open with fetch instead:
+            authFetch('/admin/backup').then(r => r.blob()).then(b => {
+                const url = URL.createObjectURL(b);
+                const a = document.createElement('a');
+                a.href = url; a.download = `wa-backup-${new Date().toISOString().split('T')[0]}.json`;
+                a.click(); URL.revokeObjectURL(url);
+            });
+            toast('⬇️ Baixando backup...', 'ok');
+        }
+        function downloadCSV(type) {
+            const url = type === 'schedules' ? '/admin/export-csv' : '/admin/export-history-csv';
+            authFetch(url).then(r => r.blob()).then(b => {
+                const u = URL.createObjectURL(b);
+                const a = document.createElement('a');
+                a.href = u; a.download = `${type}-${new Date().toISOString().split('T')[0]}.csv`;
+                a.click(); URL.revokeObjectURL(u);
+            });
+            toast('⬇️ Baixando CSV...', 'ok');
+        }
+
+        function logout() { localStorage.removeItem('wa_token'); localStorage.removeItem('wa_user'); window.location.href = '/login.html'; }
+        function toast(msg, type = 'ok') {
+            const t = document.getElementById('toast'); t.textContent = msg;
+            t.className = `toast ${type} show`; setTimeout(() => t.className = 'toast', 3000);
+        }
+
+        loadUsers();
+    </script>
+</body>
+
+</html>
