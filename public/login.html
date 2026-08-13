@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmyFlix WA</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box }
+        body { font-family:'Inter',sans-serif; background:#060b18; color:#e2e8f0; min-height:100vh; display:flex; overflow-x:hidden }
+
+        /* ── DESKTOP ── */
+        .left {
+            flex:1; display:flex; flex-direction:column; justify-content:center;
+            padding:60px; background:linear-gradient(135deg,#060b18 0%,#0a1628 50%,#060f1e 100%);
+            position:relative; overflow:hidden
+        }
+        .left::before { content:''; position:absolute; inset:0; background:radial-gradient(circle at 30% 50%, rgba(30,120,255,.08), transparent 60%) }
+        .left::after { content:''; position:absolute; top:-100px; right:-100px; width:400px; height:400px; background:radial-gradient(circle, rgba(30,120,255,.05), transparent 60%) }
+
+        .brand { display:flex; align-items:center; gap:14px; margin-bottom:50px; position:relative }
+        .brand img { height:80px; object-fit:contain }
+
+        .hero-title { font-size:46px; font-weight:800; line-height:1.15; margin-bottom:20px; position:relative }
+        .hero-title span { background:linear-gradient(135deg,#3b82f6,#60a5fa); -webkit-background-clip:text; -webkit-text-fill-color:transparent }
+        .hero-sub { font-size:17px; color:#94a3b8; line-height:1.7; max-width:420px; margin-bottom:48px; position:relative }
+
+        .features { display:flex; flex-direction:column; gap:16px; position:relative }
+        .feat { display:flex; align-items:center; gap:14px; background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:14px 18px }
+        .feat-icon { font-size:22px }
+        .feat-text { font-size:14px; color:#94a3b8 }
+        .feat-text strong { color:#e2e8f0 }
+
+        .wa-contact {
+            display:inline-flex; align-items:center; gap:10px;
+            background:rgba(37,211,102,.1); border:1px solid rgba(37,211,102,.3);
+            color:#25d366; padding:12px 20px; border-radius:12px;
+            text-decoration:none; font-size:14px; font-weight:600;
+            margin-top:32px; transition:all .2s; width:fit-content; position:relative
+        }
+        .wa-contact:hover { background:rgba(37,211,102,.2); transform:translateY(-1px) }
+
+        /* ── RIGHT PANEL ── */
+        .right {
+            width:480px; background:#0d1626; display:flex; align-items:center;
+            justify-content:center; padding:48px 40px; position:relative;
+            border-left:1px solid rgba(255,255,255,.05)
+        }
+        .form-box { width:100% }
+        .form-title { font-size:28px; font-weight:700; margin-bottom:6px }
+        .form-sub { font-size:14px; color:#64748b; margin-bottom:28px }
+
+        .plan-badge {
+            display:inline-flex; align-items:center; gap:6px;
+            background:rgba(37,211,102,.12); border:1px solid rgba(37,211,102,.25);
+            color:#25d366; padding:6px 14px; border-radius:20px;
+            font-size:12px; font-weight:600; margin-bottom:20px
+        }
+
+        .field { margin-bottom:18px }
+        .field label { display:block; font-size:13px; font-weight:600; color:#94a3b8; margin-bottom:6px }
+        .field input {
+            width:100%; background:#111827; border:1px solid #1e2d45;
+            border-radius:10px; padding:13px 16px; color:#e2e8f0;
+            font-size:15px; font-family:'Inter',sans-serif; outline:none; transition:border .2s
+        }
+        .field input:focus { border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,.12) }
+        .field input::placeholder { color:#374151 }
+
+        .btn-submit {
+            width:100%; background:linear-gradient(135deg,#3b82f6,#2563eb);
+            color:#fff; font-weight:700; font-size:16px; font-family:'Inter',sans-serif;
+            border:none; border-radius:10px; padding:15px; cursor:pointer;
+            margin-top:8px; transition:all .2s; box-shadow:0 4px 20px rgba(59,130,246,.3)
+        }
+        .btn-submit:hover { transform:translateY(-1px); box-shadow:0 8px 30px rgba(59,130,246,.4) }
+        .btn-submit:disabled { opacity:.6; cursor:not-allowed; transform:none }
+
+        .error-msg {
+            background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.25);
+            color:#f87171; border-radius:8px; padding:12px 16px;
+            font-size:13px; margin-bottom:16px; display:none
+        }
+
+        .orb { position:absolute; border-radius:50%; filter:blur(80px); pointer-events:none }
+        .orb1 { width:300px; height:300px; background:rgba(59,130,246,.04); bottom:-100px; right:-100px }
+        .orb2 { width:200px; height:200px; background:rgba(37,211,102,.04); top:50px; left:50px }
+
+        /* ── MOBILE ── */
+        @media(max-width:768px){
+            body { flex-direction:column; overflow-y:auto; min-height:100vh }
+
+            .left { display:none }
+
+            .right {
+                width:100%; min-height:100vh; border-left:none;
+                padding:0; align-items:stretch;
+                background:linear-gradient(180deg, #060b18 0%, #0a1628 100%);
+            }
+
+            .form-box {
+                display:flex; flex-direction:column;
+                min-height:100vh; padding:0;
+            }
+
+            /* Logo topo no mobile */
+            .mobile-header {
+                display:flex !important;
+                flex-direction:column; align-items:center;
+                padding:48px 24px 32px;
+                background:linear-gradient(180deg,#0a1628,#060b18);
+                border-bottom:1px solid rgba(255,255,255,.05);
+            }
+            .mobile-header img { height:100px; object-fit:contain; margin-bottom:16px }
+            .mobile-header p { font-size:13px; color:#64748b; text-align:center }
+
+            /* Form area */
+            .form-content {
+                flex:1; padding:32px 24px 40px;
+                display:flex; flex-direction:column;
+            }
+
+            .form-title { font-size:24px; text-align:center }
+            .form-sub { text-align:center; margin-bottom:24px }
+            .plan-badge { display:flex; justify-content:center; margin-bottom:20px }
+
+            /* Features mini no mobile */
+            .mobile-features {
+                display:flex !important;
+                flex-wrap:wrap; gap:8px;
+                margin-bottom:28px;
+            }
+            .mobile-feat {
+                flex:1; min-width:140px;
+                background:rgba(255,255,255,.03);
+                border:1px solid rgba(255,255,255,.06);
+                border-radius:10px; padding:10px 12px;
+                font-size:12px; color:#94a3b8;
+                display:flex; align-items:center; gap:8px
+            }
+
+            /* WA button no mobile */
+            .wa-contact-mobile {
+                display:flex !important;
+                align-items:center; justify-content:center; gap:10px;
+                background:rgba(37,211,102,.1); border:1px solid rgba(37,211,102,.3);
+                color:#25d366; padding:14px 20px; border-radius:12px;
+                text-decoration:none; font-size:14px; font-weight:600;
+                margin-top:20px; transition:all .2s;
+            }
+            .wa-contact-mobile:active { background:rgba(37,211,102,.2) }
+
+            .field input { font-size:16px } /* prevents zoom on iOS */
+            .btn-submit { padding:16px; font-size:17px }
+        }
+
+        /* Hide mobile-only elements on desktop */
+        .mobile-header, .mobile-features, .wa-contact-mobile { display:none }
+
+        /* Cadastro form */
+        .switch-link { text-align:center; margin-top:20px; font-size:13px; color:#64748b }
+        .switch-link a { color:#25d366; text-decoration:none; font-weight:600; cursor:pointer }
+        .switch-link a:hover { text-decoration:underline }
+        .form-section { display:none }
+        .form-section.active { display:block }
+        .success-box {
+            background:rgba(37,211,102,.1); border:1px solid rgba(37,211,102,.3);
+            color:#25d366; border-radius:8px; padding:14px 16px;
+            font-size:13px; margin-bottom:16px; display:none; text-align:center;
+        }
+        .captcha-box {
+            background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.08);
+            border-radius:10px; padding:14px 16px; margin-bottom:18px;
+            display:flex; align-items:center; gap:12px;
+        }
+        .captcha-question { font-size:14px; color:#94a3b8; white-space:nowrap }
+        .captcha-input {
+            width:70px; background:#111827; border:1px solid #1e2d45;
+            border-radius:8px; padding:8px 12px; color:#e2e8f0;
+            font-size:15px; font-family:'Inter',sans-serif; outline:none; text-align:center;
+        }
+        .form-content { display:block }
+        @media(max-width:768px){
+            .form-content { display:flex !important; flex-direction:column }
+        }
+    </style>
+</head>
+<body>
+    <!-- LEFT — desktop only -->
+    <div class="left">
+        <div class="brand">
+            <img src="logo.png" alt="EmyFlix WA">
+        </div>
+        <h1 class="hero-title">Automatize seus<br><span>grupos do WhatsApp</span></h1>
+        <p class="hero-sub">Envie mensagens agendadas para múltiplos grupos e contatos com apenas um clique. Funciona 24h no servidor.</p>
+        <div class="features">
+            <div class="feat"><span class="feat-icon">⏰</span>
+                <div class="feat-text"><strong>Agendamento flexível</strong> — Diário, mensal, data específica</div>
+            </div>
+            <div class="feat"><span class="feat-icon">👥</span>
+                <div class="feat-text"><strong>Múltiplos destinos</strong> — Grupos e contatos com intervalo personalizado</div>
+            </div>
+            <div class="feat"><span class="feat-icon">🖼️</span>
+                <div class="feat-text"><strong>Foto e Vídeo</strong> — Envie mídia junto com a mensagem</div>
+            </div>
+            <div class="feat"><span class="feat-icon">🔒</span>
+                <div class="feat-text"><strong>100% seguro</strong> — Dados no seu próprio servidor</div>
+            </div>
+        </div>
+        <a class="wa-contact" href="https://wa.me/447404200049?text=Ol%C3%A1%2C%20gostaria%20de%20saber%20mais%20sobre%20as%20mensagens%20automatizadas" target="_blank">
+            💬 Falar no WhatsApp
+        </a>
+    </div>
+
+    <!-- RIGHT — form -->
+    <div class="right">
+        <div class="orb orb1"></div>
+        <div class="orb orb2"></div>
+        <div class="form-box">
+
+            <!-- Mobile header com logo -->
+            <div class="mobile-header">
+                <img src="logo.png" alt="EmyFlix WA">
+                <p>Automação de mensagens WhatsApp</p>
+            </div>
+
+            <!-- Form content -->
+            <div class="form-content">
+                <div class="plan-badge">🟢 Sistema Online</div>
+                <h2 class="form-title">Bem-vindo de volta!</h2>
+                <p class="form-sub">Entre com sua conta para acessar o painel</p>
+
+                <!-- Mini features — mobile only -->
+                <div class="mobile-features">
+                    <div class="mobile-feat">⏰ <span>Agendamento flexível</span></div>
+                    <div class="mobile-feat">👥 <span>Múltiplos grupos</span></div>
+                    <div class="mobile-feat">🖼️ <span>Foto e vídeo</span></div>
+                    <div class="mobile-feat">🔒 <span>100% seguro</span></div>
+                </div>
+
+                <div id="error-msg" class="error-msg"></div>
+                <div id="success-msg" class="success-box"></div>
+
+                <!-- LOGIN -->
+                <div id="section-login" class="form-section active">
+                    <form id="login-form" onsubmit="doLogin(event)">
+                        <div class="field">
+                            <label>E-mail</label>
+                            <input type="email" id="login-email" placeholder="seu@email.com" required autocomplete="email">
+                        </div>
+                        <div class="field">
+                            <label>Senha</label>
+                            <input type="password" id="login-pass" placeholder="••••••••" required autocomplete="current-password">
+                        </div>
+                        <button type="submit" class="btn-submit" id="login-btn">Entrar →</button>
+                    </form>
+                    <div class="switch-link">Não tem conta? <a onclick="switchTo('register')">Criar conta grátis →</a></div>
+                </div>
+
+                <!-- CADASTRO -->
+                <div id="section-register" class="form-section">
+                    <form id="register-form" onsubmit="doRegister(event)">
+                        <div class="field">
+                            <label>Seu nome</label>
+                            <input type="text" id="reg-name" placeholder="João Silva" required>
+                        </div>
+                        <div class="field">
+                            <label>E-mail</label>
+                            <input type="email" id="reg-email" placeholder="seu@email.com" required autocomplete="email">
+                        </div>
+                        <div class="field">
+                            <label>Senha (mín. 8 caracteres)</label>
+                            <input type="password" id="reg-pass" placeholder="••••••••" required autocomplete="new-password">
+                        </div>
+                        <!-- Captcha simples -->
+                        <div class="captcha-box">
+                            <span class="captcha-question" id="captcha-question">Quanto é 3 + 4?</span>
+                            <input type="number" id="captcha-answer" class="captcha-input" placeholder="?" required>
+                        </div>
+                        <button type="submit" class="btn-submit" id="register-btn"
+                            style="background:linear-gradient(135deg,#25d366,#1aab51);box-shadow:0 4px 20px rgba(37,211,102,.3)">
+                            🚀 Criar conta grátis (7 dias)
+                        </button>
+                    </form>
+                    <div class="switch-link">Já tem conta? <a onclick="switchTo('login')">← Fazer login</a></div>
+                </div>
+
+                <!-- WA button mobile -->
+                <a class="wa-contact-mobile" href="https://wa.me/447404200049?text=Ol%C3%A1%2C%20gostaria%20de%20saber%20mais%20sobre%20as%20mensagens%20automatizadas" target="_blank">
+                    💬 Falar no WhatsApp
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Captcha simples
+        let captchaA = 0, captchaB = 0;
+        function generateCaptcha() {
+            captchaA = Math.floor(Math.random() * 9) + 1;
+            captchaB = Math.floor(Math.random() * 9) + 1;
+            document.getElementById('captcha-question').textContent = `Quanto é ${captchaA} + ${captchaB}?`;
+            document.getElementById('captcha-answer').value = '';
+        }
+        generateCaptcha();
+
+        function switchTo(section) {
+            document.getElementById('section-login').classList.toggle('active', section === 'login');
+            document.getElementById('section-register').classList.toggle('active', section === 'register');
+            hideError(); hideSuccess();
+            if (section === 'register') generateCaptcha();
+        }
+
+        function showError(msg) { const e = document.getElementById('error-msg'); e.textContent = msg; e.style.display = 'block'; }
+        function hideError() { document.getElementById('error-msg').style.display = 'none'; }
+        function showSuccess(msg) { const e = document.getElementById('success-msg'); e.textContent = msg; e.style.display = 'block'; }
+        function hideSuccess() { document.getElementById('success-msg').style.display = 'none'; }
+
+        async function doLogin(e) {
+            e.preventDefault();
+            hideError();
+            const btn = document.getElementById('login-btn');
+            btn.disabled = true; btn.textContent = 'Entrando...';
+            try {
+                const res = await fetch('/auth/login', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({
+                        email: document.getElementById('login-email').value,
+                        password: document.getElementById('login-pass').value
+                    })
+                });
+                const data = await res.json();
+                if (data.token) {
+                    localStorage.setItem('wa_token', data.token);
+                    localStorage.setItem('wa_user', JSON.stringify(data.user));
+                    window.location.href = data.user.role === 'admin' ? '/admin.html' : '/app.html';
+                } else {
+                    showError(data.error || 'Erro ao entrar');
+                }
+            } catch { showError('Erro de conexão'); }
+            btn.disabled = false; btn.textContent = 'Entrar →';
+        }
+
+        async function doRegister(e) {
+            e.preventDefault();
+            hideError(); hideSuccess();
+
+            // Verificar captcha
+            const answer = parseInt(document.getElementById('captcha-answer').value);
+            if (answer !== captchaA + captchaB) {
+                showError('Resposta incorreta na verificação. Tente novamente.');
+                generateCaptcha(); return;
+            }
+
+            const btn = document.getElementById('register-btn');
+            btn.disabled = true; btn.textContent = 'Criando conta...';
+            try {
+                const res = await fetch('/auth/register', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({
+                        name: document.getElementById('reg-name').value.trim(),
+                        email: document.getElementById('reg-email').value.trim(),
+                        password: document.getElementById('reg-pass').value,
+                        captcha: document.getElementById('captcha-answer').value
+                    })
+                });
+                const data = await res.json();
+                if (data.token) {
+                    localStorage.setItem('wa_token', data.token);
+                    localStorage.setItem('wa_user', JSON.stringify(data.user));
+                    showSuccess('✅ Conta criada! Entrando...');
+                    setTimeout(() => { window.location.href = '/app.html'; }, 1200);
+                } else {
+                    showError(data.error || 'Erro ao criar conta');
+                    generateCaptcha();
+                }
+            } catch { showError('Erro de conexão'); generateCaptcha(); }
+            btn.disabled = false; btn.textContent = '🚀 Criar conta grátis (7 dias)';
+        }
+
+        const token = localStorage.getItem('wa_token');
+        if (token) {
+            fetch('/auth/me', { headers:{'Authorization':'Bearer '+token} })
+                .then(r => r.json())
+                .then(user => { if (user.id) window.location.href = user.role === 'admin' ? '/admin.html' : '/app.html'; })
+                .catch(() => {});
+        }
+    </script>
+</body>
+</html>
