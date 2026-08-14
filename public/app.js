@@ -450,6 +450,9 @@ async function uploadFile(file) {
 function renderMediaList() {
     const listEl = document.getElementById('media-list');
     const delayWrap = document.getElementById('media-delay-wrap');
+    
+    if (!listEl) return;
+    
     if (!mediaItems.length) {
         listEl.style.display = 'none';
         delayWrap.style.display = 'none';
