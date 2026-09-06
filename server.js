@@ -526,6 +526,17 @@ app.get('/api/qrcode', authMiddleware, async (req, res) => {
     }
 
     try {
+        // Check current connection state first — Evolution API v2 refuses to
+        // issue a new QR code (404) for an instance that's already connected.
+        try {
+            const stateRes = await axios.get(`${EVOLUTION_API_URL}/instance/connectionState/${inst}`, { headers: evoHeaders() });
+            if (stateRes.data?.instance?.state === 'open') {
+                return res.json({ alreadyConnected: true, instance: stateRes.data.instance });
+            }
+        } catch (stateErr) {
+            // Instance may not exist yet — fall through to connect/create below.
+        }
+
         const r = await axios.get(`${EVOLUTION_API_URL}/instance/connect/${inst}`, { headers: evoHeaders() });
         res.json(r.data);
     } catch (e) {
@@ -640,6 +651,18 @@ app.get('/api/instances/:name/qrcode', authMiddleware, async (req, res) => {
     if (!hasAccess) return res.status(403).json({ error: 'Sem acesso a esta instância' });
 
     try {
+        // Check current connection state first — Evolution API v2 refuses to
+        // issue a new QR code (404) for an instance that's already connected.
+        try {
+            const stateRes = await axios.get(`${EVOLUTION_API_URL}/instance/connectionState/${instName}`, { headers: evoHeaders() });
+            const state = stateRes.data?.instance?.state;
+            if (state === 'open') {
+                return res.json({ alreadyConnected: true, instance: stateRes.data.instance });
+            }
+        } catch (stateErr) {
+            // Instance may not exist yet — fall through to create/connect below.
+        }
+
         await axios.post(`${EVOLUTION_API_URL}/instance/create`, {
             instanceName: instName, qrcode: true, integration: 'WHATSAPP-BAILEYS'
         }, { headers: evoHeaders() }).catch(() => {});
