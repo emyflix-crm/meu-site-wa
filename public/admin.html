@@ -341,18 +341,6 @@
             color: white
         }
 
-        .btn-warn {
-            background: rgba(245, 158, 11, .1);
-            color: var(--warning);
-            border: 1px solid rgba(245, 158, 11, .2)
-        }
-
-        .btn-info {
-            background: rgba(59, 130, 246, .1);
-            color: var(--info);
-            border: 1px solid rgba(59, 130, 246, .2)
-        }
-
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -572,27 +560,6 @@
             font-size: 12px;
             color: var(--text3)
         }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 6px
-        }
-
-        .status-connected {
-            background: var(--primary);
-            box-shadow: 0 0 6px var(--primary)
-        }
-
-        .status-disconnected {
-            background: var(--danger)
-        }
-
-        .status-unknown {
-            background: var(--text3)
-        }
     </style>
 </head>
 
@@ -610,7 +577,7 @@
             <div class="nav-item active" id="nav-users" onclick="showPage('users',this)">👥 Usuários</div>
             <div class="nav-item" id="nav-plans" onclick="showPage('plans',this)">📦 Planos</div>
             <div class="nav-item" id="nav-backup" onclick="showPage('backup',this)">💾 Backup</div>
-            <div class="nav-item" onclick="window.open('/app.html','_blank')">⚡ Scheduler</div>
+            <div class="nav-item" onclick="window.open('/index.html','_blank')">⚡ Scheduler</div>
         </nav>
         <div id="admin-info"
             style="margin-top:auto;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;font-size:12px;margin-bottom:8px">
@@ -721,7 +688,7 @@
         <div id="page-backup" class="page">
             <div class="page-header">
                 <h1>Backup de Dados</h1>
-                <p>Exporte os dados do sistema para não perder nada</p>
+                <p>Exporte os dados do sistema para segurança</p>
             </div>
             <div class="card">
                 <div class="card-header">
@@ -742,7 +709,7 @@
                         <div class="backup-card" onclick="downloadCSV('history')">
                             <div class="backup-icon">📊</div>
                             <div class="backup-title">Histórico CSV</div>
-                            <div class="backup-desc">Histórico de mensagens enviadas (Excel)</div>
+                            <div class="backup-desc">Histórico completo de mensagens enviadas (Excel)</div>
                         </div>
                     </div>
                 </div>
@@ -760,12 +727,11 @@
             <div class="field"><label>E-mail (login)</label><input type="email" id="new-email"
                     placeholder="email@cliente.com"></div>
             <div class="field"><label>Senha inicial</label><input type="password" id="new-pass"
-                    placeholder="Mínimo 6 caracteres" minlength="6"></div>
+                    placeholder="Mínimo 8 caracteres" minlength="8"></div>
             <div class="field">
                 <label>Nome da Instância WhatsApp</label>
                 <input type="text" id="new-instance" placeholder="ex: joao-silva" oninput="formatInstance(this)">
-                <div class="field-hint">⚠️ Use apenas letras minúsculas, números e hífens. Ex: pedro-agencias,
-                    maria-produtos</div>
+                <div class="field-hint">⚠️ Use apenas letras minúsculas, números e hífens. Ex: pedro-agencias, maria-produtos</div>
             </div>
             <div class="field">
                 <label>Plano</label>
@@ -794,7 +760,7 @@
             <input type="hidden" id="edit-id">
             <div class="field"><label>Nome</label><input type="text" id="edit-name"></div>
             <div class="field"><label>Instância WhatsApp</label><input type="text" id="edit-instance">
-                <div class="field-hint">Mudando isso você terá que reconectar o WhatsApp do cliente</div>
+                <div class="field-hint">Atenção: alterar a instância exigirá reconexão do WhatsApp.</div>
             </div>
             <div class="field">
                 <label>Plano</label>
@@ -901,7 +867,7 @@
             const errEl = document.getElementById('create-error');
             errEl.style.display = 'none';
             if (!name || !email || !password || !instance_name) { errEl.textContent = 'Preencha todos os campos'; errEl.style.display = 'block'; return; }
-            if (password.length < 6) { errEl.textContent = 'Senha deve ter ao menos 6 caracteres'; errEl.style.display = 'block'; return; }
+            if (password.length < 8) { errEl.textContent = 'Senha deve ter ao menos 8 caracteres'; errEl.style.display = 'block'; return; }
             const btn = document.getElementById('create-btn');
             btn.disabled = true; btn.textContent = 'Criando instância...';
             const r = await authFetch('/admin/users', { method: 'POST', body: JSON.stringify({ name, email, password, plan, instance_name }) });
@@ -941,7 +907,6 @@
             const data = await r.json();
             if (!data.success) { toast(data.error || 'Erro', 'err'); return; }
 
-            // Se senha preenchida, redefinir
             if (newPassword) {
                 const r2 = await authFetch(`/admin/users/${id}/reset-password`, {
                     method: 'POST', body: JSON.stringify({ newPassword })
@@ -950,7 +915,7 @@
                 if (!d2.success) { toast(d2.error || 'Erro ao redefinir senha', 'err'); return; }
                 toast('✅ Salvo e senha redefinida!', 'ok');
             } else {
-                toast('✅ Salvo!', 'ok');
+                toast('✅ Salvo com sucesso!', 'ok');
             }
             closeModal('modal-edit'); loadUsers();
         }
@@ -963,9 +928,6 @@
         }
 
         function downloadBackup() {
-            const a = document.createElement('a');
-            a.href = `/admin/backup?t=${token}`; a.click();
-            // Since we can't pass auth header via <a> tag, open with fetch instead:
             authFetch('/admin/backup').then(r => r.blob()).then(b => {
                 const url = URL.createObjectURL(b);
                 const a = document.createElement('a');
@@ -974,6 +936,7 @@
             });
             toast('⬇️ Baixando backup...', 'ok');
         }
+
         function downloadCSV(type) {
             const url = type === 'schedules' ? '/admin/export-csv' : '/admin/export-history-csv';
             authFetch(url).then(r => r.blob()).then(b => {

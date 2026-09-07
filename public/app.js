@@ -13,7 +13,10 @@ async function authFetch(url, opts = {}) {
     const res = await fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
     if (res.status === 401 || res.status === 403) {
         const data = await res.json().catch(() => ({}));
-        if (data.expired || res.status === 401) { localStorage.removeItem('wa_token'); window.location.href = '/login.html'; }
+        if (data.expired || res.status === 401) {
+            localStorage.removeItem('wa_token');
+            window.location.href = '/login.html';
+        }
         return res;
     }
     return res;
@@ -42,15 +45,22 @@ document.addEventListener('DOMContentLoaded', () => {
 function showPage(page) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.getElementById('page-' + page).classList.add('active');
-    const pages = ['dashboard', 'schedule', 'history', 'connect'];
+    const targetPage = document.getElementById('page-' + page);
+    if (targetPage) targetPage.classList.add('active');
+
+    const pages = ['dashboard', 'schedule', 'history', 'connect', 'admin'];
     const idx = pages.indexOf(page);
     if (idx >= 0) document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
+
     if (page === 'history') loadHistory();
     if (page === 'dashboard') loadSchedules();
     if (page === 'schedule') resetForm();
     if (page === 'connect') loadInstancesList();
-    if (page === 'admin') loadAdminUsers();
+    if (page === 'admin') {
+        loadAdminUsers();
+        loadAdminHistory();
+    }
+    closeMobileMenu();
 }
 
 function doLogout() {
@@ -59,13 +69,30 @@ function doLogout() {
     window.location.href = '/login.html';
 }
 
+// ── Mobile Menu ──────────────────────────────────────────
+function toggleMobileMenu() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (sidebar) sidebar.classList.toggle('open');
+    if (overlay) overlay.classList.toggle('open');
+}
+
+function closeMobileMenu() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (sidebar) sidebar.classList.remove('open');
+    if (overlay) overlay.classList.remove('open');
+}
+
 // ── Status (sidebar) ─────────────────────────────────────
 async function checkStatus() {
     try {
         const data = await (await authFetch(`${API}/api/status`)).json();
         const ok = data.instance?.state === 'open';
-        document.getElementById('status-dot').className = `status-dot ${ok ? 'connected' : 'disconnected'}`;
-        document.getElementById('status-text').textContent = ok ? 'Conectado ✓' : 'Desconectado';
+        const dot = document.getElementById('status-dot');
+        const text = document.getElementById('status-text');
+        if (dot) dot.className = `status-dot ${ok ? 'connected' : 'disconnected'}`;
+        if (text) text.textContent = ok ? 'Conectado ✓' : 'Desconectado';
     } catch { }
 }
 
@@ -88,9 +115,8 @@ async function loadInstanceSelector() {
             opt.textContent = `${inst.label || inst.name} ${inst.connected ? '🟢' : '⚪'}`;
             sel.appendChild(opt);
         });
-        // Pre-select primary
+
         if (CURRENT_USER.instance_name) sel.value = CURRENT_USER.instance_name;
-        // Load groups/contacts for the default selected instance
         const defaultInst = sel.value;
         if (defaultInst) loadGroupsForInstance(defaultInst);
     } catch { }
@@ -108,26 +134,26 @@ async function loadGroupsForInstance(instName) {
     groups = []; contacts = [];
     renderRecipients();
     const container = document.getElementById('recipient-list');
-    container.innerHTML = '<div class="loading">Carregando grupos...</div>';
+    if (container) container.innerHTML = '<div class="loading">Carregando destinatários...</div>';
 
-    // Load groups for selected instance
     try {
         const r = await authFetch(`${API}/api/groups?instance=${encodeURIComponent(instName)}`);
         const raw = await r.json();
         groups = Array.isArray(raw) ? raw : [];
-        document.getElementById('stat-groups').textContent = groups.length;
+        const grpEl = document.getElementById('stat-groups');
+        if (grpEl) grpEl.textContent = groups.length;
         if (currentTab === 'groups') renderRecipients();
     } catch (e) {
-        if (currentTab === 'groups')
+        if (currentTab === 'groups' && container)
             container.innerHTML = `<div class="empty" style="color:#f87171">Erro ao carregar grupos: ${e.message}</div>`;
     }
 
-    // Load contacts for selected instance
     try {
         const rc = await authFetch(`${API}/api/contacts?instance=${encodeURIComponent(instName)}`);
         contacts = await rc.json();
         if (!Array.isArray(contacts)) contacts = [];
-        document.getElementById('stat-contacts').textContent = contacts.length;
+        const cntEl = document.getElementById('stat-contacts');
+        if (cntEl) cntEl.textContent = contacts.length;
         if (currentTab === 'contacts') renderRecipients();
     } catch { contacts = []; }
 }
@@ -136,7 +162,7 @@ async function loadGroupsForInstance(instName) {
 async function loadInstancesList() {
     const el = document.getElementById('instances-list');
     if (!el) return;
-    el.innerHTML = '<div class="loading">Carregando...</div>';
+    el.innerHTML = '<div class="loading">Carregando instâncias...</div>';
     try {
         const r = await authFetch(`${API}/api/instances`);
         const data = await r.json();
@@ -149,10 +175,9 @@ async function loadInstancesList() {
             return;
         }
 
-        // Check status for each instance
         const statusPromises = userInstances.map(inst =>
             authFetch(`${API}/api/instances/${inst.name}/status`)
-                .then(r => r.json())
+                .then(res => res.json())
                 .then(d => ({ name: inst.name, connected: d?.instance?.state === 'open' || d?.state === 'open' }))
                 .catch(() => ({ name: inst.name, connected: false }))
         );
@@ -180,10 +205,11 @@ async function loadInstancesList() {
             </div>`;
         }).join('');
 
-        // Update sidebar status with first connected instance
         const firstConnected = statuses.find(s => s.connected);
-        document.getElementById('status-dot').className = `status-dot ${firstConnected ? 'connected' : 'disconnected'}`;
-        document.getElementById('status-text').textContent = firstConnected ? 'Conectado ✓' : 'Desconectado';
+        const dot = document.getElementById('status-dot');
+        const text = document.getElementById('status-text');
+        if (dot) dot.className = `status-dot ${firstConnected ? 'connected' : 'disconnected'}`;
+        if (text) text.textContent = firstConnected ? 'Conectado ✓' : 'Desconectado';
 
     } catch (e) {
         el.innerHTML = `<div class="empty" style="color:#ef4444">Erro: ${e.message}</div>`;
@@ -192,28 +218,29 @@ async function loadInstancesList() {
 
 function showAddInstanceModal() {
     const modal = document.getElementById('add-instance-modal');
-    modal.style.display = 'flex';
+    if (modal) modal.style.display = 'flex';
 }
 function closeAddInstanceModal() {
-    document.getElementById('add-instance-modal').style.display = 'none';
-    document.getElementById('new-inst-label').value = '';
+    const modal = document.getElementById('add-instance-modal');
+    if (modal) modal.style.display = 'none';
+    const labelInp = document.getElementById('new-inst-label');
+    if (labelInp) labelInp.value = '';
 }
 
 async function addInstance() {
-    const label = document.getElementById('new-inst-label').value.trim();
+    const labelInp = document.getElementById('new-inst-label');
+    const label = labelInp ? labelInp.value.trim() : '';
     if (!label) { showToast('Digite um nome para identificar o WhatsApp', 'error'); return; }
     try {
         const r = await authFetch(`${API}/api/instances`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ label })
         });
         const data = await r.json();
         if (data.success) {
             closeAddInstanceModal();
-            showToast('✅ WhatsApp criado! Agora conecte escaneando o QR.', 'success');
+            showToast('✅ WhatsApp criado! Escaneie o QR Code.', 'success');
             await loadInstancesList();
-            // Auto-open QR for the new instance
             openQRModal(data.instance.name, data.instance.label);
         } else {
             showToast(data.error || 'Erro ao criar', 'error');
@@ -249,7 +276,7 @@ async function disconnectInstance(instName) {
 function openQRModal(instName, label) {
     currentQRInstance = instName;
     const modal = document.getElementById('qr-modal');
-    modal.style.display = 'flex';
+    if (modal) modal.style.display = 'flex';
     document.getElementById('qr-modal-title').textContent = '📱 ' + (label || instName);
     document.getElementById('qr-modal-inst').textContent = 'Instância: ' + instName;
     document.getElementById('qr-modal-connected').style.display = 'none';
@@ -259,7 +286,8 @@ function openQRModal(instName, label) {
 }
 
 function closeQRModal() {
-    document.getElementById('qr-modal').style.display = 'none';
+    const modal = document.getElementById('qr-modal');
+    if (modal) modal.style.display = 'none';
     currentQRInstance = null;
     loadInstancesList();
     loadInstanceSelector();
@@ -278,7 +306,7 @@ async function loadQRForInstance(instName) {
             document.getElementById('qr-modal-img').src = base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
             document.getElementById('qr-modal-area').style.display = 'block';
             document.getElementById('qr-modal-connected').style.display = 'none';
-        } else if (data.instance?.state === 'open' || data.state === 'open') {
+        } else if (data.instance?.state === 'open' || data.state === 'open' || data.alreadyConnected) {
             document.getElementById('qr-modal-area').style.display = 'none';
             document.getElementById('qr-modal-connected').style.display = 'block';
         } else {
@@ -297,8 +325,9 @@ async function loadGroups() {
         const connected = statusData.instance?.state === 'open';
         if (!connected) {
             groups = [];
-            document.getElementById('stat-groups').textContent = '0';
-            if (currentTab === 'groups') {
+            const stGrp = document.getElementById('stat-groups');
+            if (stGrp) stGrp.textContent = '0';
+            if (currentTab === 'groups' && container) {
                 container.innerHTML = `<div class="empty" style="color:#f87171">
                     ⚠️ WhatsApp desconectado.<br>
                     <button class="btn btn-primary" style="font-size:12px;padding:6px 14px;margin-top:8px" onclick="showPage('connect')">📱 Conectar agora</button>
@@ -309,15 +338,16 @@ async function loadGroups() {
         const r = await authFetch(`${API}/api/groups`);
         const raw = await r.json();
         groups = Array.isArray(raw) ? raw : [];
-        document.getElementById('stat-groups').textContent = groups.length;
-        if (groups.length === 0 && currentTab === 'groups') {
-            container.innerHTML = `<div class="empty">Nenhum grupo encontrado.</div>`;
+        const stGrp = document.getElementById('stat-groups');
+        if (stGrp) stGrp.textContent = groups.length;
+        if (groups.length === 0 && currentTab === 'groups' && container) {
+            container.innerHTML = `<div class="empty">Nenhum grupo encontrado nesta conta.</div>`;
             return;
         }
         renderRecipients();
     } catch (e) {
         groups = [];
-        if (currentTab === 'groups') {
+        if (currentTab === 'groups' && container) {
             container.innerHTML = `<div class="empty" style="color:#f87171">❌ Erro de conexão: ${e.message}</div>`;
         }
     }
@@ -328,7 +358,8 @@ async function loadContacts() {
         const r = await authFetch(`${API}/api/contacts`);
         contacts = await r.json();
         if (!Array.isArray(contacts)) contacts = [];
-        document.getElementById('stat-contacts').textContent = contacts.length;
+        const stCnt = document.getElementById('stat-contacts');
+        if (stCnt) stCnt.textContent = contacts.length;
     } catch { contacts = []; }
 }
 
@@ -348,25 +379,29 @@ function filterRecipients() { renderRecipients(); }
 function renderRecipients() {
     const q = document.getElementById('recipient-search')?.value?.toLowerCase() || '';
     const container = document.getElementById('recipient-list');
+    if (!container) return;
+
     let list;
     if (currentTab === 'groups') {
-        list = groups.filter(g => !q || (g.subject || '').toLowerCase().includes(q))
-            .map(g => ({ id: g.id, name: g.subject || g.id, type: 'group' }));
+        list = groups.filter(g => !q || (g.subject || g.name || '').toLowerCase().includes(q))
+            .map(g => ({ id: g.id, name: g.subject || g.name || g.id, type: 'group' }));
     } else {
         list = contacts.filter(c => !q || (c.name || c.phone || '').toLowerCase().includes(q))
             .map(c => ({ id: c.id, name: c.name, phone: c.phone, hasName: c.hasName, type: 'contact' }));
     }
+
     if (!list.length) {
         container.innerHTML = `<div class="empty">${currentTab === 'groups' ? 'Nenhum grupo encontrado' : 'Nenhum contato encontrado'}</div>`;
         return;
     }
+
     container.innerHTML = list.map(item => {
         const isSelected = selectedRecipients.some(r => r.id === item.id);
         return `<div class="recipient-item ${isSelected ? 'selected' : ''}" onclick="toggleRecipient('${item.id}', '${(item.name || '').replace(/'/g, "\\'")}', '${item.type}')">
             <span class="recipient-icon">${item.type === 'group' ? '👥' : '👤'}</span>
             <div class="recipient-info">
-                <div class="recipient-name" style="${item.hasName === false ? 'color:var(--text3);font-style:italic;' : ''}">${item.name}</div>
-                ${item.hasName !== false && item.phone ? `<div class="recipient-sub">${item.phone}</div>` : ''}
+                <div class="recipient-name" style="${item.hasName === false ? 'color:var(--text3);font-style:italic;' : ''}">${escHtml(item.name)}</div>
+                ${item.hasName !== false && item.phone ? `<div class="recipient-sub">${escHtml(item.phone)}</div>` : ''}
             </div>
             ${isSelected ? '<span class="recipient-check">✓</span>' : ''}
         </div>`;
@@ -388,10 +423,14 @@ function removeRecipient(id) {
 }
 
 function updateSelectedTags() {
-    document.getElementById('selected-count').textContent = `${selectedRecipients.length} selecionado${selectedRecipients.length !== 1 ? 's' : ''}`;
-    document.getElementById('selected-tags').innerHTML = selectedRecipients.map(r =>
-        `<span class="tag">${r.type === 'group' ? '👥' : '👤'} ${r.name}<button type="button" onclick="removeRecipient('${r.id}')">✕</button></span>`
-    ).join('');
+    const countEl = document.getElementById('selected-count');
+    if (countEl) countEl.textContent = `${selectedRecipients.length} selecionado${selectedRecipients.length !== 1 ? 's' : ''}`;
+    const tagsEl = document.getElementById('selected-tags');
+    if (tagsEl) {
+        tagsEl.innerHTML = selectedRecipients.map(r =>
+            `<span class="tag">${r.type === 'group' ? '👥' : '👤'} ${escHtml(r.name)}<button type="button" onclick="removeRecipient('${r.id}')">✕</button></span>`
+        ).join('');
+    }
 }
 
 // ── Frequency & Delay ─────────────────────────────────────
@@ -408,7 +447,7 @@ function selectDelay(delay, el) {
 }
 
 // ── File upload (múltiplas mídias) ───────────────────────
-let mediaItems = []; // [{url, type, text, name}]
+let mediaItems = [];
 let mediaDelayMode = 'immediate';
 
 function handleFileSelect(e) { uploadFile(e.target.files[0]); }
@@ -421,7 +460,7 @@ function handleDrop(e) {
 async function uploadFile(file) {
     if (!file) return;
     const area = document.getElementById('upload-area');
-    area.classList.add('uploading');
+    if (area) area.classList.add('uploading');
     showToast('⏳ Enviando arquivo...', 'success');
     const fd = new FormData();
     fd.append('media', file);
@@ -434,38 +473,39 @@ async function uploadFile(file) {
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             showToast('Erro: ' + (err.error || res.status), 'error');
-            area.classList.remove('uploading'); return;
+            if (area) area.classList.remove('uploading');
+            return;
         }
         const data = await res.json();
         if (data.url) {
             mediaItems.push({ url: data.url, type: data.isVideo ? 'video' : 'image', text: '', name: file.name });
-            document.getElementById('media-file').value = '';
+            const fileInp = document.getElementById('media-file');
+            if (fileInp) fileInp.value = '';
             renderMediaList();
             showToast('✅ ' + file.name + ' adicionado!', 'success');
         }
     } catch (e) { showToast('Erro ao carregar arquivo', 'error'); }
-    area.classList.remove('uploading');
+    if (area) area.classList.remove('uploading');
 }
 
 function renderMediaList() {
     const listEl = document.getElementById('media-list');
     const delayWrap = document.getElementById('media-delay-wrap');
-    
     if (!listEl) return;
-    
+
     if (!mediaItems.length) {
         listEl.style.display = 'none';
-        delayWrap.style.display = 'none';
+        if (delayWrap) delayWrap.style.display = 'none';
         return;
     }
     listEl.style.display = 'block';
-    delayWrap.style.display = mediaItems.length >= 2 ? 'block' : 'none';
+    if (delayWrap) delayWrap.style.display = mediaItems.length >= 2 ? 'block' : 'none';
 
     listEl.innerHTML = mediaItems.map((m, i) => {
         const header = `<div style="display:flex;align-items:center;gap:10px;${i > 0 ? 'margin-bottom:8px;' : ''}">
             <span style="font-size:18px">${m.type === 'video' ? '🎥' : '🖼️'}</span>
             <span style="font-size:13px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-                <span style="font-size:11px;color:${i === 0 ? 'var(--primary)' : 'var(--text3)'};margin-right:4px;">${i+1}ª</span>${m.name}
+                <span style="font-size:11px;color:${i === 0 ? 'var(--primary)' : 'var(--text3)'};margin-right:4px;">${i+1}ª</span>${escHtml(m.name)}
             </span>
             <button type="button" onclick="removeMedia(${i})"
                 style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#ef4444;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:'Inter',sans-serif">
@@ -473,10 +513,10 @@ function renderMediaList() {
             </button>
         </div>`;
         const body = i === 0
-            ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;">💬 Usa a mensagem principal como texto</div>`
-            : `<textarea placeholder="Texto para esta mídia (opcional)" rows="2"
+            ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;">💬 Usa a mensagem principal como legenda</div>`
+            : `<textarea placeholder="Legenda para esta mídia (opcional)" rows="2"
                 oninput="mediaItems[${i}].text = this.value"
-                style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;outline:none;resize:vertical;font-family:'Inter',sans-serif;">${m.text}</textarea>`;
+                style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;outline:none;resize:vertical;font-family:'Inter',sans-serif;margin-top:6px;">${escHtml(m.text)}</textarea>`;
         return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;">${header}${body}</div>`;
     }).join('');
 }
@@ -488,7 +528,8 @@ function removeMedia(i) {
 
 function clearMedia() {
     mediaItems = [];
-    document.getElementById('media-file').value = '';
+    const fileInp = document.getElementById('media-file');
+    if (fileInp) fileInp.value = '';
     renderMediaList();
 }
 
@@ -497,14 +538,24 @@ function selectMediaDelay(mode) {
     const btnImm = document.getElementById('delay-btn-immediate');
     const btnCus = document.getElementById('delay-btn-custom');
     const customWrap = document.getElementById('delay-custom-wrap');
+    if (!btnImm || !btnCus) return;
+
     if (mode === 'immediate') {
-        btnImm.style.cssText = btnImm.style.cssText.replace(/border:[^;]+;background:[^;]+;color:[^;]+/, 'border:1px solid var(--primary);background:var(--primary-glow);color:var(--primary)');
-        btnCus.style.cssText = btnCus.style.cssText.replace(/border:[^;]+;background:[^;]+;color:[^;]+/, 'border:1px solid var(--border);background:var(--bg3);color:var(--text2)');
-        customWrap.style.display = 'none';
+        btnImm.style.border = '1px solid var(--primary)';
+        btnImm.style.background = 'var(--primary-glow)';
+        btnImm.style.color = 'var(--primary)';
+        btnCus.style.border = '1px solid var(--border)';
+        btnCus.style.background = 'var(--bg3)';
+        btnCus.style.color = 'var(--text2)';
+        if (customWrap) customWrap.style.display = 'none';
     } else {
-        btnCus.style.cssText = btnCus.style.cssText.replace(/border:[^;]+;background:[^;]+;color:[^;]+/, 'border:1px solid var(--primary);background:var(--primary-glow);color:var(--primary)');
-        btnImm.style.cssText = btnImm.style.cssText.replace(/border:[^;]+;background:[^;]+;color:[^;]+/, 'border:1px solid var(--border);background:var(--bg3);color:var(--text2)');
-        customWrap.style.display = 'flex';
+        btnCus.style.border = '1px solid var(--primary)';
+        btnCus.style.background = 'var(--primary-glow)';
+        btnCus.style.color = 'var(--primary)';
+        btnImm.style.border = '1px solid var(--border)';
+        btnImm.style.background = 'var(--bg3)';
+        btnImm.style.color = 'var(--text2)';
+        if (customWrap) customWrap.style.display = 'flex';
     }
 }
 
@@ -568,9 +619,10 @@ async function createSchedule(e) {
     const instance_name = document.getElementById('schedule-instance')?.value || CURRENT_USER.instance_name;
     if (!instance_name) { showToast('Selecione um WhatsApp para envio!', 'error'); return; }
     const time = document.getElementById('schedule-time').value;
-        const message = document.getElementById('schedule-message').value;
+    const message = document.getElementById('schedule-message').value;
     if (message && message.length > 4096) { showToast('Mensagem muito longa (máx 4096 caracteres)!', 'error'); return; }
     if (!message && !mediaItems.length) { showToast('Digite uma mensagem ou adicione uma mídia!', 'error'); return; }
+
     const media_url = mediaItems.length ? mediaItems[0].url : '';
     const media_type = mediaItems.length ? mediaItems[0].type : '';
     const extra_medias = mediaItems.slice(1).map(m => ({ url: m.url, type: m.type, text: m.text }));
@@ -587,7 +639,6 @@ async function createSchedule(e) {
     try {
         const res = await authFetch(`${API}/api/schedules`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ recipients: selectedRecipients, message, media_url, media_type, media_texts, extra_medias, media_delay_ms, time, frequency, schedule_date, send_delay, instance_name, timezone })
         });
         const data = await res.json();
@@ -595,9 +646,9 @@ async function createSchedule(e) {
             showToast(`✅ Agendamento criado para ${selectedRecipients.length} destinatário(s)!`, 'success');
             resetForm();
             loadSchedules();
-            setTimeout(() => showPage('dashboard'), 1200);
+            setTimeout(() => showPage('dashboard'), 1000);
         } else showToast(data.error || 'Erro', 'error');
-    } catch { showToast('Erro ao criar', 'error'); }
+    } catch { showToast('Erro ao criar agendamento', 'error'); }
     btn.disabled = false; btn.textContent = '⚡ Criar Agendamento';
 }
 
@@ -616,7 +667,6 @@ function resetForm() {
     if (freqGroups[0]) freqGroups[0].querySelectorAll('.freq-option').forEach((e, i) => e.classList.toggle('selected', i === 0));
     if (freqGroups[1]) freqGroups[1].querySelectorAll('.freq-option').forEach((e, i) => e.classList.toggle('selected', i === 1));
     loadInstanceSelector();
-    // Reset timezone to Brazil
     document.querySelectorAll('.tz-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
     const tzInput = document.getElementById('schedule-timezone');
     if (tzInput) tzInput.value = 'America/Sao_Paulo';
@@ -640,17 +690,19 @@ async function loadSchedules() {
     try {
         const r = await authFetch(`${API}/api/schedules`);
         schedules = await r.json();
-        document.getElementById('stat-active').textContent = schedules.filter(s => s.active).length;
+        const activeEl = document.getElementById('stat-active');
+        if (activeEl) activeEl.textContent = schedules.filter(s => s.active).length;
         renderSchedules();
     } catch { }
 }
 
 function renderSchedules() {
     const list = document.getElementById('schedules-list');
+    if (!list) return;
     let filtered = schedules;
     if (dashFilter !== 'all') filtered = schedules.filter(s => s.recipients?.some(r => r.type === dashFilter));
     if (!filtered.length) {
-        list.innerHTML = '<div class="empty">Nenhum agendamento aqui.<br><br><button class="btn btn-primary" onclick="showPage(\'schedule\')">+ Criar agendamento</button></div>';
+        list.innerHTML = '<div class="empty">Nenhum agendamento cadastrado.<br><br><button class="btn btn-primary" onclick="showPage(\'schedule\')">+ Criar agendamento</button></div>';
         return;
     }
     const freqLabel = { daily: '🔁 Diário', once: '1️⃣ Somente 1×', monthly: '📅 Mensal', date: '📆 Data fixa' };
@@ -660,14 +712,14 @@ function renderSchedules() {
         return `<div class="schedule-item">
             <div class="schedule-time">${s.time}</div>
             <div class="schedule-info">
-                <div class="schedule-group">${s.recipients?.length || 1} destinatário(s): <span style="color:var(--text2);font-weight:400">${names.substring(0, 70)}${names.length > 70 ? '...' : ''}</span></div>
-                <div class="schedule-message">${s.message.substring(0, 80)}${s.message.length > 80 ? '...' : ''}</div>
+                <div class="schedule-group">${s.recipients?.length || 1} destinatário(s): <span style="color:var(--text2);font-weight:400">${escHtml(names.substring(0, 70))}${names.length > 70 ? '...' : ''}</span></div>
+                <div class="schedule-message">${escHtml((s.message || '').substring(0, 80))}${(s.message || '').length > 80 ? '...' : ''}</div>
                 <div class="schedule-meta">
                     ${s.active ? '<span class="badge badge-green">✓ Ativo</span>' : '<span class="badge badge-yellow">⏸ Pausado</span>'}
                     <span class="badge badge-blue">${freqLabel[s.frequency] || '🔁 Diário'}</span>
                     ${s.schedule_date ? `<span class="badge badge-purple">📆 ${s.schedule_date}</span>` : ''}
                     ${s.media_url ? `<span class="badge badge-blue">${s.media_type === 'video' ? '🎥' : '🖼️'} Mídia</span>` : ''}
-                    ${s.instance_name ? `<span class="badge" style="color:var(--text3)">📱 ${s.instance_name}</span>` : ''}
+                    ${s.instance_name ? `<span class="badge" style="color:var(--text3)">📱 ${escHtml(s.instance_name)}</span>` : ''}
                     ${s.timezone ? `<span class="badge" style="color:var(--text3)">🌍 ${s.timezone.split('/')[1] || s.timezone}</span>` : ''}
                     <span class="badge" style="color:var(--text3)">⏱${totalMin || ' 1 dest.'}</span>
                     ${s.last_sent ? `<span class="badge" style="color:var(--text3)">Enviado ${formatDate(s.last_sent)}</span>` : ''}
@@ -683,17 +735,17 @@ function renderSchedules() {
 }
 
 async function sendNow(id) {
-    showToast('⚡ Enviando...', 'success');
+    showToast('⚡ Disparando mensagens...', 'success');
     try {
         const data = await (await authFetch(`${API}/api/send-now/${id}`, { method: 'POST' })).json();
         showToast(data.message || '✅ Enviando!', 'success');
-        setTimeout(() => loadHistory(), 4000);
+        setTimeout(() => loadHistory(), 3000);
     } catch { showToast('Erro ao enviar', 'error'); }
 }
 
 async function toggleSchedule(id, active) {
     const s = schedules.find(s => s.id === id); if (!s) return;
-    await authFetch(`${API}/api/schedules/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...s, active: !active }) });
+    await authFetch(`${API}/api/schedules/${id}`, { method: 'PUT', body: JSON.stringify({ ...s, active: !active }) });
     showToast(active ? '⏸ Pausado' : '▶️ Ativado', 'success');
     loadSchedules();
 }
@@ -723,16 +775,16 @@ async function loadHistory() {
         const errors = history.filter(h => h.status === 'error');
         const banner = errors.length > 0
             ? `<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#f87171">
-                ⚠️ <strong>${errors.length} envio(s) com erro</strong>. Motivo mais comum: WhatsApp desconectado.
+                ⚠️ <strong>${errors.length} envio(s) com erro</strong>. Verifique se o WhatsApp está conectado.
                </div>` : '';
         list.innerHTML = banner + history.map(h => {
             const isError = h.status === 'error';
-            const errorDetail = isError && h.error ? `<div style="font-size:11px;color:#f87171;margin-top:3px">⚠️ ${h.error}</div>` : '';
+            const errorDetail = isError && h.error ? `<div style="font-size:11px;color:#f87171;margin-top:3px">⚠️ ${escHtml(h.error)}</div>` : '';
             return `<div class="history-item" style="${isError ? 'border-left:3px solid #ef4444;' : ''}">
                 <div class="history-status ${h.status}">${isError ? '❌' : '✅'}</div>
                 <div class="history-info">
-                    <div class="history-group">${h.recipient_type === 'group' ? '👥' : '👤'} ${h.recipient_name || '—'}</div>
-                    <div class="history-message">${(h.message || '').substring(0, 100)}${(h.message || '').length > 100 ? '...' : ''}</div>
+                    <div class="history-group">${h.recipient_type === 'group' ? '👥' : '👤'} ${escHtml(h.recipient_name || '—')}</div>
+                    <div class="history-message">${escHtml((h.message || '').substring(0, 100))}${(h.message || '').length > 100 ? '...' : ''}</div>
                     ${errorDetail}
                 </div>
                 <div class="history-time">${formatDate(h.sent_at)}</div>
@@ -744,47 +796,28 @@ async function loadHistory() {
     }
 }
 
-// ── Utilities ─────────────────────────────────────────────
-function formatDate(iso) {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-}
-function showToast(msg, type = 'success') {
-    const t = document.getElementById('toast');
-    t.textContent = msg; t.className = `toast ${type} show`;
-    setTimeout(() => t.className = 'toast', 3500);
-}
-function escHtml(str) {
-    return (str || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#x27;');
-}
-
 // ── Admin Panel ───────────────────────────────────────────
 async function loadAdminUsers() {
     const el = document.getElementById('admin-users-list');
-    el.innerHTML = '<div class="loading">Carregando...</div>';
+    if (!el) return;
+    el.innerHTML = '<div class="loading">Carregando usuários...</div>';
     try {
         const r = await authFetch('/admin/users');
         const users = await r.json();
-        if (!users?.length) { el.innerHTML = '<p style="color:var(--text3);padding:16px">Nenhum usuário.</p>'; return; }
+        if (!users?.length) { el.innerHTML = '<p style="color:var(--text3);padding:16px">Nenhum usuário cadastrado.</p>'; return; }
         el.innerHTML = users.map(u => {
             const statusColor = u.active ? '#22c55e' : '#ef4444';
             const planLabel = { trial: '🟡 Trial', monthly: '🔵 Mensal', semiannual: '🟣 Semestral', annual: '🟠 Anual', unlimited: '⚡ Ilimitado' }[u.plan] || u.plan;
             const expires = u.plan_expires ? new Date(u.plan_expires).toLocaleDateString('pt-BR') : '—';
             const maxInst = u.max_instances || 1;
-            const totalInst = (u.instances?.length || 0) + (u.instance_name ? 1 : 0);
+            const totalInst = (u.instances?.length || 0) + (u.instance_name && !u.instances?.some(i => i.name === u.instance_name) ? 1 : 0);
             return `<div style="border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;background:var(--bg3)">
                 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
                     <div style="display:flex;align-items:center;gap:10px">
                         <div style="width:10px;height:10px;border-radius:50%;background:${statusColor};flex-shrink:0"></div>
                         <div>
-                            <div style="font-weight:600;font-size:14px">${u.name}</div>
-                            <div style="font-size:11px;color:var(--text3)">${u.email}</div>
+                            <div style="font-weight:600;font-size:14px">${escHtml(u.name)}</div>
+                            <div style="font-size:11px;color:var(--text3)">${escHtml(u.email)}</div>
                         </div>
                     </div>
                     <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -795,7 +828,7 @@ async function loadAdminUsers() {
                 </div>
                 <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                     <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px"
-                        onclick="openGroupsModal('${u.id}', '${escHtml(u.name)}', '${u.instance_name || ''}')">
+                        onclick="openGroupsModal('${u.id}', '${escHtml(u.name).replace(/'/g, "\\'")}', '${escHtml(u.instance_name || '').replace(/'/g, "\\'")}')">
                         👥 Ver Grupos
                     </button>
                     <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
@@ -818,7 +851,6 @@ async function setMaxInstances(userId, value) {
     try {
         const r = await authFetch(`/admin/users/${userId}/max-instances`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ max_instances: max })
         });
         const data = await r.json();
@@ -828,7 +860,8 @@ async function setMaxInstances(userId, value) {
 }
 
 async function openGroupsModal(userId, userName, instanceName) {
-    document.getElementById('admin-groups-modal').style.display = 'block';
+    const modal = document.getElementById('admin-groups-modal');
+    if (modal) modal.style.display = 'block';
     document.getElementById('modal-user-name').textContent = '👥 Grupos de ' + userName;
     document.getElementById('modal-user-instance').textContent = 'Instância: ' + (instanceName || '—');
     const listEl = document.getElementById('modal-groups-list');
@@ -837,7 +870,7 @@ async function openGroupsModal(userId, userName, instanceName) {
         const gr = await authFetch('/admin/users/' + userId + '/groups');
         const grps = await gr.json();
         if (!grps?.length) {
-            listEl.innerHTML = '<p style="color:var(--text3);padding:8px">Nenhum grupo. WhatsApp pode estar desconectado.</p>';
+            listEl.innerHTML = '<p style="color:var(--text3);padding:8px">Nenhum grupo encontrado (WhatsApp pode estar desconectado).</p>';
             return;
         }
         listEl.innerHTML = `<p style="font-size:12px;color:var(--text3);margin-bottom:12px">📋 ${grps.length} grupos</p>` +
@@ -851,14 +884,16 @@ async function openGroupsModal(userId, userName, instanceName) {
     }
 }
 
-function closeGroupsModal() { document.getElementById('admin-groups-modal').style.display = 'none'; }
+function closeGroupsModal() {
+    const modal = document.getElementById('admin-groups-modal');
+    if (modal) modal.style.display = 'none';
+}
 
 async function joinGroup(groupId, btn) {
     btn.disabled = true; btn.textContent = '⏳ Entrando...';
     try {
         const resp = await authFetch('/admin/join-group', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ groupId })
         });
         const res = await resp.json();
@@ -873,4 +908,78 @@ async function joinGroup(groupId, btn) {
         btn.disabled = false; btn.textContent = '➕ Entrar no grupo';
         showToast('❌ Erro: ' + e.message, 'error');
     }
+}
+
+// ── Admin History ─────────────────────────────────────────
+let adminFullHistory = [];
+
+async function loadAdminHistory() {
+    const listEl = document.getElementById('admin-history-list');
+    if (!listEl) return;
+    listEl.innerHTML = '<div class="loading">Carregando histórico geral...</div>';
+    try {
+        const r = await authFetch('/api/history');
+        adminFullHistory = await r.json();
+
+        const select = document.getElementById('admin-history-filter');
+        if (select) {
+            const usersMap = {};
+            adminFullHistory.forEach(h => { if (h.userId) usersMap[h.userId] = h.recipient_name || h.userId; });
+            select.innerHTML = '<option value="">— Todos os clientes —</option>' +
+                Object.keys(usersMap).map(uid => `<option value="${uid}">${escHtml(usersMap[uid])} (${uid})</option>`).join('');
+        }
+
+        renderAdminHistory(adminFullHistory);
+    } catch (e) {
+        listEl.innerHTML = `<p style="color:#ef4444;padding:16px">Erro: ${e.message}</p>`;
+    }
+}
+
+function filterAdminHistory() {
+    const filterUserId = document.getElementById('admin-history-filter')?.value;
+    const filtered = filterUserId ? adminFullHistory.filter(h => h.userId === filterUserId) : adminFullHistory;
+    renderAdminHistory(filtered);
+}
+
+function renderAdminHistory(list) {
+    const listEl = document.getElementById('admin-history-list');
+    if (!listEl) return;
+    if (!list.length) {
+        listEl.innerHTML = '<p style="color:var(--text3);padding:16px">Nenhum envio registrado.</p>';
+        return;
+    }
+    listEl.innerHTML = list.map(h => {
+        const isError = h.status === 'error';
+        return `<div class="history-item" style="${isError ? 'border-left:3px solid #ef4444;' : ''}">
+            <div class="history-status ${h.status}">${isError ? '❌' : '✅'}</div>
+            <div class="history-info">
+                <div class="history-group">${h.recipient_type === 'group' ? '👥' : '👤'} ${escHtml(h.recipient_name || '—')}</div>
+                <div class="history-message">${escHtml((h.message || '').substring(0, 100))}</div>
+                ${isError && h.error ? `<div style="font-size:11px;color:#f87171;margin-top:3px">⚠️ ${escHtml(h.error)}</div>` : ''}
+            </div>
+            <div class="history-time">${formatDate(h.sent_at)}</div>
+        </div>`;
+    }).join('');
+}
+
+// ── Utilities ─────────────────────────────────────────────
+function formatDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+function showToast(msg, type = 'success') {
+    const t = document.getElementById('toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.className = `toast ${type} show`;
+    setTimeout(() => { if (t) t.className = 'toast'; }, 3500);
+}
+function escHtml(str) {
+    return (str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;');
 }
