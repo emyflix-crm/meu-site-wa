@@ -99,7 +99,7 @@ function showPage(page) {
 
     if (page === 'history') loadHistory();
     if (page === 'dashboard') loadSchedules();
-    if (page === 'campaigns') renderCampaignsPage();
+    if (page === 'campaigns') initCampaignsPage();
     if (page === 'schedule') {
         loadCampaigns();
         updateLivePreview();
@@ -142,6 +142,16 @@ async function checkStatus() {
 }
 
 // ── Multi-Instance Selector ──────────────────────────────
+function getActiveInstance() {
+    const sel = document.getElementById('schedule-instance');
+    if (sel && sel.value) return sel.value;
+    if (CURRENT_USER.instance_name) return CURRENT_USER.instance_name;
+    if (CURRENT_USER.instances && CURRENT_USER.instances.length > 0) return CURRENT_USER.instances[0].name;
+    if (CURRENT_USER.role === 'admin') return 'teste-nascimento';
+    return '';
+}
+
+// ── Multi-Instance Selector ──────────────────────────────
 async function loadInstanceSelector() {
     try {
         const r = await authFetch(`${API}/api/instances`);
@@ -151,8 +161,12 @@ async function loadInstanceSelector() {
         if (!sel) return;
         sel.innerHTML = '';
         if (!userInstances.length) {
-            sel.innerHTML = '<option value="">Nenhum WhatsApp conectado</option>';
-            return;
+            if (CURRENT_USER.role === 'admin') {
+                userInstances = [{ name: 'teste-nascimento', label: 'Principal (Admin)', connected: true }];
+            } else {
+                sel.innerHTML = '<option value="">Nenhum WhatsApp conectado</option>';
+                return;
+            }
         }
         userInstances.forEach(inst => {
             const opt = document.createElement('option');
@@ -161,35 +175,58 @@ async function loadInstanceSelector() {
             sel.appendChild(opt);
         });
 
-        if (CURRENT_USER.instance_name) sel.value = CURRENT_USER.instance_name;
-        const defaultInst = sel.value;
-        if (defaultInst) loadGroupsForInstance(defaultInst);
+        let targetInst = CURRENT_USER.instance_name;
+        if (!targetInst && CURRENT_USER.role === 'admin') targetInst = 'teste-nascimento';
+        if (!targetInst && userInstances.length > 0) targetInst = userInstances[0].name;
+
+        if (targetInst) {
+            sel.value = targetInst;
+            if (!sel.value && sel.options.length > 0) sel.selectedIndex = 0;
+        }
+
+        const chosenInst = sel.value || getActiveInstance();
+        if (chosenInst) loadGroupsForInstance(chosenInst);
     } catch { }
 }
 
 function onInstanceChange() {
-    const instName = document.getElementById('schedule-instance')?.value;
+    const instName = document.getElementById('schedule-instance')?.value || getActiveInstance();
     if (!instName) return;
     selectedRecipients = [];
     updateSelectedTags();
     loadGroupsForInstance(instName);
 }
 
-// ── GRUPOS COM CACHE INSTANTÂNEO ──────────────────────────
+// ── GRUPOS COM CACHE INSTANTÂNEO & SYNC SILENCIOSO ────────
 async function loadGroupsForInstance(instName, forceRefresh = false) {
+    if (!instName) instName = getActiveInstance();
+    if (!instName) return;
+
     const container = document.getElementById('recipient-list');
     const cacheKey = `wa_cache_groups_${instName}`;
     const cachedData = localStorage.getItem(cacheKey);
 
-    if (cachedData && !forceRefresh) {
+    // 1. CARREGAMENTO INSTANTÂNEO (0ms): se já tiver salvo no navegador, exibe na hora!
+    if (cachedData) {
         try {
-            groups = JSON.parse(cachedData);
-            const grpEl = document.getElementById('stat-groups');
-            if (grpEl) grpEl.textContent = groups.length;
-            if (currentTab === 'groups') renderRecipients();
+            const parsed = JSON.parse(cachedData);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                groups = parsed;
+                const grpEl = document.getElementById('stat-groups');
+                if (grpEl) grpEl.textContent = groups.length;
+                if (currentTab === 'groups') renderRecipients();
+
+                // Se não foi um clique manual no botão "Atualizar", faz sync silencioso em segundo plano
+                if (!forceRefresh) {
+                    syncGroupsInBackground(instName, cacheKey);
+                    return;
+                }
+            }
         } catch {}
-    } else if (currentTab === 'groups') {
-        container.innerHTML = '<div class="loading">Carregando grupos do WhatsApp...</div>';
+    }
+
+    if (currentTab === 'groups') {
+        container.innerHTML = '<div class="loading">🔄 Carregando grupos do WhatsApp...</div>';
     }
 
     try {
@@ -201,23 +238,47 @@ async function loadGroupsForInstance(instName, forceRefresh = false) {
             const grpEl = document.getElementById('stat-groups');
             if (grpEl) grpEl.textContent = groups.length;
             if (currentTab === 'groups') renderRecipients();
+        } else if (raw.error) {
+            if (!groups.length && currentTab === 'groups') {
+                container.innerHTML = `<div class="empty" style="color:#f87171">⚠️ ${escHtml(raw.error)}<br><button type="button" class="btn btn-secondary" style="margin-top:10px;font-size:12px;" onclick="forceRefreshDest()">🔄 Tentar novamente</button></div>`;
+            }
         }
     } catch (e) {
         if (!groups.length && currentTab === 'groups') {
-            container.innerHTML = `<div class="empty" style="color:#f87171">Erro ao carregar grupos: ${e.message}</div>`;
+            container.innerHTML = `<div class="empty" style="color:#f87171">Erro ao carregar grupos: ${e.message}<br><button type="button" class="btn btn-secondary" style="margin-top:10px;font-size:12px;" onclick="forceRefreshDest()">🔄 Tentar novamente</button></div>`;
         }
     }
 }
 
+async function syncGroupsInBackground(instName, cacheKey) {
+    try {
+        const r = await authFetch(`${API}/api/groups?instance=${encodeURIComponent(instName)}`);
+        const raw = await r.json();
+        if (Array.isArray(raw) && raw.length > 0) {
+            groups = raw;
+            localStorage.setItem(cacheKey, JSON.stringify(groups));
+            const grpEl = document.getElementById('stat-groups');
+            if (grpEl) grpEl.textContent = groups.length;
+            if (currentTab === 'groups') renderRecipients();
+        }
+    } catch {}
+}
+
 async function forceRefreshDest() {
-    const instName = document.getElementById('schedule-instance')?.value || CURRENT_USER.instance_name;
-    if (!instName) return;
-    showToast('🔄 Atualizando lista de grupos...', 'warning');
+    const instName = getActiveInstance();
+    if (!instName) {
+        showToast('Selecione um WhatsApp primeiro!', 'error');
+        return;
+    }
+    showToast('🔄 Buscando grupos na Evolution API...', 'warning');
     await loadGroupsForInstance(instName, true);
-    showToast('✅ Grupos atualizados!', 'success');
+    showToast(`✅ ${groups.length} grupos sincronizados!`, 'success');
 }
 
 // ── CAMPANHAS ─────────────────────────────────────────────
+let campGroups = [];           // grupos carregados para a página de campanhas
+let campSelectedGroups = [];   // grupos selecionados na criação de campanha
+
 async function loadCampaigns() {
     try {
         const r = await authFetch(`${API}/api/campaigns`);
@@ -229,6 +290,230 @@ async function loadCampaigns() {
     } catch { campaigns = []; }
 }
 
+// INICIALIZA a página de campanhas (chamada pelo showPage)
+async function initCampaignsPage() {
+    campSelectedGroups = [];
+    // Popula o seletor de instância da página de campanhas
+    const campSel = document.getElementById('camp-instance-select');
+    if (campSel) {
+        try {
+            const r = await authFetch(`${API}/api/instances`);
+            const data = await r.json();
+            const insts = data.instances || [];
+            campSel.innerHTML = '';
+            if (!insts.length) {
+                if (CURRENT_USER.role === 'admin') {
+                    const opt = document.createElement('option');
+                    opt.value = 'teste-nascimento';
+                    opt.textContent = 'Principal (Admin) 🟢';
+                    campSel.appendChild(opt);
+                } else {
+                    campSel.innerHTML = '<option value="">Nenhum WhatsApp conectado</option>';
+                }
+            } else {
+                insts.forEach(inst => {
+                    const opt = document.createElement('option');
+                    opt.value = inst.name;
+                    opt.textContent = `${inst.label || inst.name} ${inst.connected ? '🟢' : '⚪'}`;
+                    campSel.appendChild(opt);
+                });
+            }
+            // Define instância padrão
+            let targetInst = CURRENT_USER.instance_name;
+            if (!targetInst && CURRENT_USER.role === 'admin') targetInst = 'teste-nascimento';
+            if (!targetInst && insts.length > 0) targetInst = insts[0].name;
+            if (targetInst) campSel.value = targetInst;
+        } catch {
+            campSel.innerHTML = '<option value="">Erro ao carregar</option>';
+        }
+    }
+    // Carrega grupos e campanhas
+    loadCampGroups();
+    await loadCampaigns();
+    renderCampaignsPage();
+}
+
+// CARREGA GRUPOS para a página de campanhas (com cache)
+async function loadCampGroups(forceRefresh = false) {
+    const sel = document.getElementById('camp-instance-select');
+    let instName = sel ? sel.value : getActiveInstance();
+    if (!instName) instName = getActiveInstance();
+    if (!instName) return;
+
+    const container = document.getElementById('camp-groups-list');
+    const cacheKey = `wa_cache_groups_${instName}`;
+
+    // Cache instantâneo
+    if (!forceRefresh) {
+        const cachedData = localStorage.getItem(cacheKey);
+        if (cachedData) {
+            try {
+                const parsed = JSON.parse(cachedData);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    campGroups = parsed;
+                    renderCampGroups();
+                    // Sync silencioso em background
+                    syncCampGroupsBg(instName, cacheKey);
+                    return;
+                }
+            } catch {}
+        }
+    }
+
+    if (container) container.innerHTML = '<div class="loading">🔄 Carregando grupos...</div>';
+
+    try {
+        const r = await authFetch(`${API}/api/groups?instance=${encodeURIComponent(instName)}${forceRefresh ? '&refresh=true' : ''}`);
+        const raw = await r.json();
+        if (Array.isArray(raw)) {
+            campGroups = raw;
+            localStorage.setItem(cacheKey, JSON.stringify(campGroups));
+            renderCampGroups();
+            if (forceRefresh) showToast(`✅ ${campGroups.length} grupos carregados!`, 'success');
+        } else {
+            if (container) container.innerHTML = `<div class="empty" style="color:#f87171;">⚠️ ${escHtml(raw.error || 'Erro ao carregar')}<br><button type="button" class="btn btn-secondary" style="margin-top:10px;font-size:12px;" onclick="loadCampGroups(true)">🔄 Tentar novamente</button></div>`;
+        }
+    } catch (e) {
+        if (container) container.innerHTML = `<div class="empty" style="color:#f87171;">Erro: ${e.message}<br><button type="button" class="btn btn-secondary" style="margin-top:10px;font-size:12px;" onclick="loadCampGroups(true)">🔄 Tentar novamente</button></div>`;
+    }
+}
+
+async function syncCampGroupsBg(instName, cacheKey) {
+    try {
+        const r = await authFetch(`${API}/api/groups?instance=${encodeURIComponent(instName)}`);
+        const raw = await r.json();
+        if (Array.isArray(raw) && raw.length > 0) {
+            campGroups = raw;
+            localStorage.setItem(cacheKey, JSON.stringify(campGroups));
+            renderCampGroups();
+        }
+    } catch {}
+}
+
+// RENDERIZA a lista de grupos com checkboxes
+function renderCampGroups() {
+    const container = document.getElementById('camp-groups-list');
+    if (!container) return;
+
+    const searchVal = (document.getElementById('camp-group-search')?.value || '').toLowerCase();
+    const filtered = campGroups.filter(g => g.name.toLowerCase().includes(searchVal));
+
+    if (!filtered.length) {
+        container.innerHTML = searchVal
+            ? `<div class="empty" style="font-size:13px;">Nenhum grupo encontrado para "${escHtml(searchVal)}"</div>`
+            : `<div class="empty" style="font-size:13px;">Nenhum grupo disponível. Conecte seu WhatsApp primeiro!</div>`;
+        return;
+    }
+
+    container.innerHTML = `
+        <div style="padding:6px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);margin-bottom:4px;">
+            <span style="font-size:12px;color:var(--text3);">${filtered.length} grupo${filtered.length !== 1 ? 's' : ''} encontrado${filtered.length !== 1 ? 's' : ''}</span>
+            <button type="button" onclick="campSelectAll()" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:12px;font-weight:600;">
+                ${campSelectedGroups.length === filtered.length ? '✖ Desmarcar Todos' : '☑ Selecionar Todos'}
+            </button>
+        </div>
+    ` + filtered.map(g => {
+        const isSelected = campSelectedGroups.some(sg => sg.id === g.id);
+        return `<div class="camp-group-item ${isSelected ? 'selected' : ''}" onclick="toggleCampGroup('${g.id}')">
+            <div class="camp-check">${isSelected ? '✓' : ''}</div>
+            <div style="flex:1;overflow:hidden;">
+                <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(g.name)}</div>
+            </div>
+        </div>`;
+    }).join('');
+
+    updateCampSelectedUI();
+}
+
+// TOGGLE seleção de grupo
+function toggleCampGroup(groupId) {
+    const group = campGroups.find(g => g.id === groupId);
+    if (!group) return;
+
+    const idx = campSelectedGroups.findIndex(sg => sg.id === groupId);
+    if (idx >= 0) {
+        campSelectedGroups.splice(idx, 1);
+    } else {
+        // Checar limite do plano
+        const maxG = CURRENT_USER.max_recipients || 25;
+        if (CURRENT_USER.role !== 'admin' && campSelectedGroups.length >= maxG) {
+            showToast(`⚠️ Seu plano permite no máximo ${maxG} grupos por campanha. Faça upgrade!`, 'warning');
+            return;
+        }
+        campSelectedGroups.push({ id: group.id, name: group.name });
+    }
+    renderCampGroups();
+}
+
+// SELECIONAR/DESMARCAR TODOS
+function campSelectAll() {
+    const searchVal = (document.getElementById('camp-group-search')?.value || '').toLowerCase();
+    const filtered = campGroups.filter(g => g.name.toLowerCase().includes(searchVal));
+
+    if (campSelectedGroups.length === filtered.length) {
+        campSelectedGroups = [];
+    } else {
+        const maxG = CURRENT_USER.max_recipients || 25;
+        if (CURRENT_USER.role !== 'admin' && filtered.length > maxG) {
+            campSelectedGroups = filtered.slice(0, maxG).map(g => ({ id: g.id, name: g.name }));
+            showToast(`⚠️ Seu plano permite máx. ${maxG} grupos. Foram selecionados os primeiros ${maxG}.`, 'warning');
+        } else {
+            campSelectedGroups = filtered.map(g => ({ id: g.id, name: g.name }));
+        }
+    }
+    renderCampGroups();
+}
+
+// REMOVER grupo selecionado via tag
+function removeCampGroup(groupId) {
+    campSelectedGroups = campSelectedGroups.filter(sg => sg.id !== groupId);
+    renderCampGroups();
+}
+
+// ATUALIZA UI de selecionados (counter + tags)
+function updateCampSelectedUI() {
+    const countEl = document.getElementById('camp-selected-count');
+    const tagsEl = document.getElementById('camp-selected-tags');
+    if (countEl) countEl.textContent = campSelectedGroups.length;
+    if (tagsEl) {
+        if (!campSelectedGroups.length) {
+            tagsEl.innerHTML = '<span style="color:var(--text3);font-size:12px;font-style:italic;">Nenhum grupo selecionado</span>';
+        } else {
+            tagsEl.innerHTML = campSelectedGroups.map(g =>
+                `<span class="camp-selected-tag">${escHtml(g.name)} <span class="tag-remove" onclick="event.stopPropagation();removeCampGroup('${g.id}')">✕</span></span>`
+            ).join('');
+        }
+    }
+}
+
+// SALVAR campanha direto pela página de campanhas
+async function saveCampDirect() {
+    const name = document.getElementById('camp-create-name')?.value.trim();
+    if (!name) { showToast('📝 Dê um nome para a campanha!', 'error'); return; }
+    if (!campSelectedGroups.length) { showToast('👥 Selecione pelo menos um grupo!', 'error'); return; }
+
+    const btn = document.getElementById('btn-save-camp-direct');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Salvando...'; }
+
+    try {
+        const r = await authFetch(`${API}/api/campaigns`, {
+            method: 'POST', body: JSON.stringify({ name, recipients: campSelectedGroups })
+        });
+        const data = await r.json();
+        if (data.success) {
+            showToast(`✅ Campanha "${name}" criada com ${campSelectedGroups.length} grupos!`, 'success');
+            campSelectedGroups = [];
+            document.getElementById('camp-create-name').value = '';
+            await loadCampaigns();
+            renderCampaignsPage();
+            renderCampGroups();
+        } else showToast(data.error || 'Erro ao salvar', 'error');
+    } catch (e) { showToast('Erro: ' + e.message, 'error'); }
+
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Salvar Campanha'; }
+}
+
+// MODAL de salvar como campanha (da página de agendamento — mantém compatibilidade)
 function openSaveAsCampaignModal() {
     if (!selectedRecipients.length) {
         showToast('Selecione pelo menos um grupo primeiro!', 'error');
@@ -254,15 +539,12 @@ async function saveCampaignFromModal() {
             showToast(`✅ Campanha "${name}" criada com sucesso!`, 'success');
             closeCampaignModal();
             await loadCampaigns();
-            renderCampaignsPage();
         } else showToast(data.error || 'Erro', 'error');
     } catch (e) { showToast('Erro: ' + e.message, 'error'); }
 }
 
 function openCreateCampaignModal() {
-    showPage('schedule');
-    switchRecipientTab('groups', document.querySelectorAll('.rec-tab')[0]);
-    showToast('👉 Marque os grupos e clique em "Salvar como Campanha"!', 'warning');
+    showPage('campaigns'); // Agora redireciona para a própria página de campanhas!
 }
 
 async function deleteCampaign(id) {
@@ -270,19 +552,22 @@ async function deleteCampaign(id) {
     try {
         await authFetch(`${API}/api/campaigns/${id}`, { method: 'DELETE' });
         showToast('🗑️ Campanha removida', 'success');
-        loadCampaigns();
+        await loadCampaigns();
         renderCampaignsPage();
     } catch {}
 }
 
 function renderCampaignsPage() {
     const el = document.getElementById('campaigns-list');
+    const countEl = document.getElementById('camp-saved-count');
     if (!el) return;
+    if (countEl) countEl.textContent = `${campaigns.length} campanha${campaigns.length !== 1 ? 's' : ''}`;
+
     if (!campaigns.length) {
-        el.innerHTML = `<div class="empty">
+        el.innerHTML = `<div class="empty" style="padding:24px;">
+            <span style="font-size:36px;">📭</span><br>
             Nenhuma campanha criada ainda.<br>
-            <p style="font-size:12px;color:var(--text3);margin-top:6px;">Agrupe grupos recorrentes para agendar tudo em 1 clique!</p>
-            <button class="btn btn-primary" style="margin-top:14px;" onclick="openCreateCampaignModal()">➕ Criar Campanha</button>
+            <p style="font-size:12px;color:var(--text3);margin-top:6px;">Crie sua primeira campanha usando o formulário acima! ☝️</p>
         </div>`;
         return;
     }
@@ -294,7 +579,7 @@ function renderCampaignsPage() {
                 <div class="campaign-card-count">👥 ${(c.recipients || []).length} grupos</div>
                 <div style="font-size:11.5px;color:var(--text3);margin-top:3px;max-width:550px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(names)}</div>
             </div>
-            <div style="display:flex;gap:8px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-primary" style="font-size:12px;" onclick="useCampaignForSchedule('${c.id}')">⚡ Agendar Nesta Lista</button>
                 <button class="btn btn-danger" style="font-size:12px;" onclick="deleteCampaign('${c.id}')">🗑️</button>
             </div>
@@ -447,10 +732,13 @@ function removeRecipient(id) {
 }
 
 function updateSelectedTags() {
-    const maxG = CURRENT_USER.max_recipients || 50;
+    const isAdmin = CURRENT_USER.role === 'admin' || CURRENT_USER.plan === 'unlimited';
+    const maxG = isAdmin ? 99999 : (CURRENT_USER.max_recipients || 50);
     const countEl = document.getElementById('selected-count');
     if (countEl) {
-        countEl.textContent = `${selectedRecipients.length}/${maxG} grupos`;
+        countEl.textContent = isAdmin 
+            ? `👑 ${selectedRecipients.length} selecionados (Acesso Livre)` 
+            : `${selectedRecipients.length}/${maxG} grupos`;
     }
     const tagsEl = document.getElementById('selected-tags');
     if (tagsEl) {
@@ -467,23 +755,8 @@ function updateSelectedTags() {
 function updateLivePreview() {
     const msg = document.getElementById('schedule-message')?.value || '';
     const time = document.getElementById('schedule-time')?.value || '--:--';
-    const previewText = document.getElementById('preview-text');
-    const previewTime = document.getElementById('preview-time-display');
     const previewTitle = document.getElementById('preview-target-title');
-    const previewImg = document.getElementById('preview-img');
-
-    if (previewText) {
-        if (!msg.trim()) {
-            previewText.innerHTML = '<span style="color:#8696a0;font-style:italic;">Sua mensagem vai aparecer aqui exatamente como no WhatsApp...</span>';
-        } else {
-            let formatted = escHtml(msg)
-                .replace(/\*([^\*]+)\*/g, '<b>$1</b>')
-                .replace(/_([^_]+)_/g, '<i>$1</i>');
-            previewText.innerHTML = formatted;
-        }
-    }
-
-    if (previewTime) previewTime.textContent = time;
+    const phoneScreen = document.getElementById('phone-screen');
 
     if (previewTitle) {
         if (!selectedRecipients.length) previewTitle.textContent = 'Destinatários';
@@ -491,13 +764,50 @@ function updateLivePreview() {
         else previewTitle.textContent = `${selectedRecipients[0].name} (+${selectedRecipients.length - 1})`;
     }
 
-    if (previewImg) {
-        if (mediaItems.length > 0 && mediaItems[0].type === 'image') {
-            previewImg.src = mediaItems[0].url;
-            previewImg.style.display = 'block';
-        } else {
-            previewImg.style.display = 'none';
+    // Gera preview completo dentro do phone-screen
+    if (phoneScreen) {
+        let bubblesHtml = '';
+
+        // Se tem mídias, mostra cada mídia como um bubble separado com sua legenda
+        if (mediaItems.length > 0) {
+            mediaItems.forEach((m, i) => {
+                const caption = m.text || '';
+                let formattedCaption = '';
+                if (caption.trim()) {
+                    formattedCaption = escHtml(caption)
+                        .replace(/\*([^\*]+)\*/g, '<b>$1</b>')
+                        .replace(/_([^_]+)_/g, '<i>$1</i>');
+                }
+                bubblesHtml += `<div class="phone-bubble" style="margin-bottom:8px;">`;
+                if (m.type === 'image') {
+                    bubblesHtml += `<img src="${escHtml(m.url)}" class="phone-bubble-img" style="display:block;width:100%;border-radius:8px 8px ${formattedCaption ? '0 0' : '8px 8px'};margin-bottom:${formattedCaption ? '6px' : '0'};" alt="Foto ${i+1}">`;
+                } else {
+                    bubblesHtml += `<div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:20px;text-align:center;margin-bottom:${formattedCaption ? '6px' : '0'};"><span style="font-size:32px;">🎥</span><div style="font-size:11px;color:#ccc;margin-top:4px;">${escHtml(m.name)}</div></div>`;
+                }
+                if (formattedCaption) {
+                    bubblesHtml += `<div style="white-space:pre-wrap;padding:0 4px;font-size:13px;">${formattedCaption}</div>`;
+                }
+                bubblesHtml += `<div class="phone-bubble-meta"><span>${time}</span><span class="check-blue">✓✓</span></div></div>`;
+            });
         }
+
+        // Bubble da mensagem principal (se houver texto)
+        if (msg.trim() || !mediaItems.length) {
+            let formattedMsg = '';
+            if (!msg.trim()) {
+                formattedMsg = '<span style="color:#8696a0;font-style:italic;">Sua mensagem vai aparecer aqui exatamente como no WhatsApp...</span>';
+            } else {
+                formattedMsg = escHtml(msg)
+                    .replace(/\*([^\*]+)\*/g, '<b>$1</b>')
+                    .replace(/_([^_]+)_/g, '<i>$1</i>');
+            }
+            bubblesHtml += `<div class="phone-bubble">
+                <div style="white-space:pre-wrap;">${formattedMsg}</div>
+                <div class="phone-bubble-meta"><span>${time}</span><span class="check-blue">✓✓</span></div>
+            </div>`;
+        }
+
+        phoneScreen.innerHTML = bubblesHtml;
     }
 
     const sumRec = document.getElementById('summary-recipients');
@@ -505,8 +815,11 @@ function updateLivePreview() {
     const sumFreq = document.getElementById('summary-freq');
     const sumDur = document.getElementById('summary-duration');
 
-    const maxG = CURRENT_USER.max_recipients || 50;
-    if (sumRec) sumRec.textContent = `${selectedRecipients.length} de ${maxG} permitidos`;
+    const isAdmin = CURRENT_USER.role === 'admin' || CURRENT_USER.plan === 'unlimited';
+    const maxG = isAdmin ? 99999 : (CURRENT_USER.max_recipients || 50);
+    if (sumRec) sumRec.textContent = isAdmin
+        ? `${selectedRecipients.length} selecionados (Livre Acesso)`
+        : `${selectedRecipients.length} de ${maxG} permitidos`;
     if (sumTime) sumTime.textContent = time !== '--:--' ? time : 'Não definido';
 
     const freqVal = document.getElementById('schedule-frequency')?.value || 'daily';
@@ -590,12 +903,20 @@ function renderMediaList() {
     if (delayWrap) delayWrap.style.display = mediaItems.length >= 2 ? 'block' : 'none';
 
     listEl.innerHTML = mediaItems.map((m, i) => `
-        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
-            <div style="display:flex;align-items:center;gap:8px;overflow:hidden;">
-                <span>${m.type === 'video' ? '🎥' : '🖼️'}</span>
-                <span style="font-size:12.5px;font-weight:500;text-overflow:ellipsis;overflow:hidden;white-space:nowrap">${escHtml(m.name)}</span>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:8px;overflow:hidden;flex:1;">
+                    ${m.type === 'image' ? `<img src="${escHtml(m.url)}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;flex-shrink:0;" alt="">` : `<span style="font-size:24px;">🎥</span>`}
+                    <span style="font-size:12.5px;font-weight:500;text-overflow:ellipsis;overflow:hidden;white-space:nowrap">${escHtml(m.name)}</span>
+                </div>
+                <button type="button" class="btn btn-danger" style="font-size:11px;padding:3px 8px;flex-shrink:0;" onclick="removeMedia(${i})">✕</button>
             </div>
-            <button type="button" class="btn btn-danger" style="font-size:11px;padding:3px 8px;" onclick="removeMedia(${i})">✕</button>
+            <textarea
+                rows="2"
+                placeholder="✏️ Legenda para esta ${m.type === 'video' ? 'vídeo' : 'foto'} (opcional)..."
+                style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12.5px;color:var(--text);resize:vertical;font-family:inherit;"
+                oninput="updateMediaText(${i}, this.value)"
+            >${escHtml(m.text || '')}</textarea>
         </div>
     `).join('');
 }
@@ -604,6 +925,13 @@ function removeMedia(i) {
     mediaItems.splice(i, 1);
     renderMediaList();
     updateLivePreview();
+}
+
+function updateMediaText(index, text) {
+    if (mediaItems[index]) {
+        mediaItems[index].text = text;
+        updateLivePreview();
+    }
 }
 
 function selectMediaDelay(mode) {
@@ -937,36 +1265,300 @@ async function addInstance() {
     }
 }
 
-// ── Admin Panel ───────────────────────────────────────────
+// ── Admin Panel Completo & Gestão de Limites ─────────────
+let adminUsersList = [];
+let adminHistoryData = [];
+
 async function loadAdminUsers() {
     const el = document.getElementById('admin-users-list');
     if (!el) return;
+    el.innerHTML = '<div class="loading">Carregando clientes...</div>';
     try {
-        const users = await (await authFetch('/admin/users')).json();
-        el.innerHTML = users.map(u => `
-            <div style="border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px;background:var(--bg3);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-                <div>
-                    <strong style="font-size:14px;">${escHtml(u.name)}</strong>
-                    <div style="font-size:11px;color:var(--text3);">${escHtml(u.email)} • ${u.max_instances} WAs • ${u.max_schedules} Agend. • Máx ${u.max_recipients} grupos</div>
+        const r = await authFetch('/admin/users');
+        adminUsersList = await r.json();
+        if (!Array.isArray(adminUsersList) || !adminUsersList.length) {
+            el.innerHTML = '<div class="empty">Nenhum cliente cadastrado ainda.</div>';
+            return;
+        }
+
+        // Atualiza filtro de clientes no histórico geral do admin
+        const filterSel = document.getElementById('admin-history-filter');
+        if (filterSel) {
+            const currentVal = filterSel.value;
+            filterSel.innerHTML = '<option value="">— Todos os Clientes —</option>' +
+                adminUsersList.map(u => `<option value="${u.id}">${escHtml(u.name)} (${escHtml(u.email)})</option>`).join('');
+            filterSel.value = currentVal;
+        }
+
+        el.innerHTML = adminUsersList.map(u => {
+            const isAdmin = u.role === 'admin';
+            const isActive = u.active !== false;
+            const planKey = u.plan || 'trial';
+            const planBadgeClass = {
+                trial: 'badge-yellow',
+                start: 'badge-blue',
+                pro: 'badge-purple',
+                diamond: 'badge-green',
+                unlimited: 'badge-green'
+            }[planKey] || 'badge-blue';
+
+            const planTitle = u.plan_name || (
+                planKey === 'trial' ? '⚡ Trial (7 dias)' :
+                planKey === 'start' ? '🥉 Start' :
+                planKey === 'pro' ? '🚀 Pro' :
+                planKey === 'diamond' ? '💎 Diamante' :
+                '👑 Admin Ilimitado'
+            );
+
+            const expires = u.plan_expires ? new Date(u.plan_expires).toLocaleDateString('pt-BR') : 'Sem expiração';
+
+            return `
+            <div class="admin-user-card" style="border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin-bottom:12px;background:var(--bg3);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                <div style="display:flex;align-items:center;gap:12px;min-width:240px;">
+                    <div style="width:42px;height:42px;border-radius:50%;background:var(--bg2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">
+                        ${isAdmin ? '👑' : '👤'}
+                    </div>
+                    <div>
+                        <div style="font-size:15px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px;">
+                            <span>${escHtml(u.name)}</span>
+                            <span class="badge ${isActive ? 'badge-green' : 'badge-yellow'}" style="font-size:10px;">
+                                ${isActive ? '● Ativo' : '● Bloqueado'}
+                            </span>
+                            <span class="badge ${planBadgeClass}" style="font-size:10px;">${planTitle}</span>
+                        </div>
+                        <div style="font-size:12px;color:var(--text3);margin-top:2px;">
+                            ✉️ ${escHtml(u.email)} • 📱 Instância: <code>${escHtml(u.instance_name || 'N/A')}</code>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:11.5px;">
+                            <span style="background:var(--bg2);border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:var(--text2);">
+                                📱 <b>${u.max_instances}</b> WA(s)
+                            </span>
+                            <span style="background:var(--bg2);border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:var(--text2);">
+                                📅 <b>${u.max_schedules}</b> Agendamentos
+                            </span>
+                            <span style="background:var(--bg2);border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:var(--primary);font-weight:600;">
+                                👥 Limite: <b>${u.max_recipients}</b> grupos
+                            </span>
+                            <span style="background:var(--bg2);border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:var(--text3);">
+                                ⏰ Expira: ${expires}
+                            </span>
+                        </div>
+                    </div>
                 </div>
-                <div style="font-size:12px;background:var(--bg2);padding:4px 10px;border-radius:6px;font-weight:600;">${u.plan_name || u.plan}</div>
-            </div>
-        `).join('');
-    } catch {}
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <button type="button" class="btn btn-primary" style="font-size:12px;padding:6px 14px;" onclick="openAdminEditModal('${u.id}')">
+                        ✏️ Editar & Limites
+                    </button>
+                    ${!isAdmin ? `
+                    <button type="button" class="btn btn-danger" style="font-size:12px;padding:6px 12px;" onclick="deleteAdminUser('${u.id}', '${(u.name||'').replace(/'/g,"\\'")}')">
+                        🗑️ Excluir
+                    </button>
+                    ` : `
+                    <span style="font-size:11px;color:var(--text3);font-style:italic;">Admin Principal</span>
+                    `}
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        el.innerHTML = `<div class="empty" style="color:#f87171">Erro ao carregar clientes: ${e.message}</div>`;
+    }
+}
+
+function openAdminEditModal(userId) {
+    const u = adminUsersList.find(item => item.id === userId);
+    if (!u) {
+        showToast('Cliente não encontrado', 'error');
+        return;
+    }
+    document.getElementById('admin-edit-id').value = u.id;
+    document.getElementById('admin-edit-name').value = u.name || '';
+    document.getElementById('admin-edit-instance').value = u.instance_name || '';
+    document.getElementById('admin-edit-plan').value = u.plan || 'start';
+    document.getElementById('admin-edit-max-instances').value = u.max_instances || 1;
+    document.getElementById('admin-edit-max-schedules').value = u.max_schedules || 2;
+    document.getElementById('admin-edit-max-recipients').value = u.max_recipients || 50;
+    document.getElementById('admin-edit-active').value = u.active !== false ? 'true' : 'false';
+    document.getElementById('admin-edit-password').value = '';
+
+    const modal = document.getElementById('modal-admin-edit');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeAdminEditModal() {
+    const modal = document.getElementById('modal-admin-edit');
+    if (modal) modal.style.display = 'none';
+}
+
+function onAdminPlanChange(plan) {
+    const maxInstInput = document.getElementById('admin-edit-max-instances');
+    const maxSchedInput = document.getElementById('admin-edit-max-schedules');
+    const maxRecInput = document.getElementById('admin-edit-max-recipients');
+
+    const defaults = {
+        trial: { inst: 1, sched: 1, rec: 25 },
+        start: { inst: 1, sched: 2, rec: 50 },
+        pro: { inst: 2, sched: 4, rec: 150 },
+        diamond: { inst: 4, sched: 8, rec: 400 },
+        unlimited: { inst: 999, sched: 9999, rec: 99999 }
+    };
+
+    const d = defaults[plan] || defaults.start;
+    if (maxInstInput) maxInstInput.value = d.inst;
+    if (maxSchedInput) maxSchedInput.value = d.sched;
+    if (maxRecInput) maxRecInput.value = d.rec;
+}
+
+async function saveAdminEdit() {
+    const id = document.getElementById('admin-edit-id').value;
+    if (!id) return;
+    const name = document.getElementById('admin-edit-name').value.trim();
+    const instance_name = document.getElementById('admin-edit-instance').value.trim();
+    const plan = document.getElementById('admin-edit-plan').value;
+    const max_instances = parseInt(document.getElementById('admin-edit-max-instances').value) || 1;
+    const max_schedules = parseInt(document.getElementById('admin-edit-max-schedules').value) || 2;
+    const max_recipients = parseInt(document.getElementById('admin-edit-max-recipients').value) || 50;
+    const active = document.getElementById('admin-edit-active').value === 'true';
+    const password = document.getElementById('admin-edit-password').value.trim();
+
+    if (!name) { showToast('Nome é obrigatório!', 'error'); return; }
+
+    try {
+        const body = { name, instance_name, plan, max_instances, max_schedules, max_recipients, active };
+        if (password) {
+            if (password.length < 8) { showToast('A nova senha deve ter no mínimo 8 caracteres!', 'error'); return; }
+            body.password = password;
+        }
+
+        const r = await authFetch(`/admin/users/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(body)
+        });
+        const data = await r.json();
+        if (data.success) {
+            showToast('✅ Cliente e limites atualizados com sucesso!', 'success');
+            closeAdminEditModal();
+            loadAdminUsers();
+        } else {
+            showToast(data.error || 'Erro ao salvar cliente', 'error');
+        }
+    } catch (e) {
+        showToast('Erro de conexão: ' + e.message, 'error');
+    }
+}
+
+async function deleteAdminUser(userId, userName) {
+    if (!confirm(`⚠️ TEM CERTEZA que deseja excluir o cliente "${userName}"?\n\nTodos os agendamentos, histórico e WhatsApps deste cliente serão permanentemente excluídos!`)) {
+        return;
+    }
+
+    try {
+        const r = await authFetch(`/admin/users/${userId}`, { method: 'DELETE' });
+        const data = await r.json();
+        if (data.success) {
+            showToast(`🗑️ Cliente "${userName}" excluído!`, 'success');
+            loadAdminUsers();
+        } else {
+            showToast(data.error || 'Erro ao excluir', 'error');
+        }
+    } catch (e) {
+        showToast('Erro: ' + e.message, 'error');
+    }
+}
+
+function openAdminCreateModal() {
+    document.getElementById('admin-create-name').value = '';
+    document.getElementById('admin-create-email').value = '';
+    document.getElementById('admin-create-password').value = '';
+    document.getElementById('admin-create-instance').value = '';
+    document.getElementById('admin-create-plan').value = 'start';
+    const m = document.getElementById('modal-admin-create');
+    if (m) m.style.display = 'flex';
+}
+
+function closeAdminCreateModal() {
+    const m = document.getElementById('modal-admin-create');
+    if (m) m.style.display = 'none';
+}
+
+async function submitAdminCreate() {
+    const name = document.getElementById('admin-create-name').value.trim();
+    const email = document.getElementById('admin-create-email').value.trim();
+    const password = document.getElementById('admin-create-password').value.trim();
+    const instance_name = document.getElementById('admin-create-instance').value.trim();
+    const plan = document.getElementById('admin-create-plan').value;
+
+    if (!name || !email || !password) {
+        showToast('Nome, e-mail e senha são obrigatórios!', 'error');
+        return;
+    }
+    if (password.length < 8) {
+        showToast('A senha deve ter no mínimo 8 caracteres!', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('btn-admin-create-submit');
+    if (btn) { btn.disabled = true; btn.textContent = 'Criando...'; }
+
+    try {
+        const r = await authFetch('/admin/users', {
+            method: 'POST',
+            body: JSON.stringify({ name, email, password, instance_name, plan })
+        });
+        const data = await r.json();
+        if (data.success) {
+            showToast(`✅ Cliente "${name}" criado com sucesso!`, 'success');
+            closeAdminCreateModal();
+            loadAdminUsers();
+        } else {
+            showToast(data.error || 'Erro ao criar cliente', 'error');
+        }
+    } catch (e) {
+        showToast('Erro: ' + e.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '✓ Criar Cliente'; }
+    }
 }
 
 async function loadAdminHistory() {
     const el = document.getElementById('admin-history-list');
     if (!el) return;
+    el.innerHTML = '<div class="loading">Carregando histórico geral...</div>';
     try {
-        const history = await (await authFetch('/api/history')).json();
-        el.innerHTML = history.slice(0, 30).map(h => `
-            <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between;">
-                <span>${h.status === 'sent' ? '✅' : '❌'} ${escHtml(h.recipient_name)}</span>
-                <span style="color:var(--text3);">${formatDate(h.sent_at)}</span>
+        const r = await authFetch('/api/history');
+        adminHistoryData = await r.json();
+        filterAdminHistory();
+    } catch (e) {
+        el.innerHTML = `<div class="empty">Erro ao carregar histórico: ${e.message}</div>`;
+    }
+}
+
+function filterAdminHistory() {
+    const el = document.getElementById('admin-history-list');
+    if (!el) return;
+    const filterUserId = document.getElementById('admin-history-filter')?.value;
+    let list = adminHistoryData || [];
+    if (filterUserId) {
+        list = list.filter(h => h.userId === filterUserId);
+    }
+    if (!list.length) {
+        el.innerHTML = '<div class="empty">Nenhum disparo encontrado para o filtro selecionado.</div>';
+        return;
+    }
+    el.innerHTML = list.slice(0, 50).map(h => `
+        <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <span>${h.status === 'sent' ? '✅' : '❌'}</span>
+                <div>
+                    <div style="font-weight:600;">${escHtml(h.recipient_name || '—')}</div>
+                    <div style="font-size:11px;color:var(--text3);">${escHtml((h.message || '').substring(0, 70))}</div>
+                </div>
             </div>
-        `).join('');
-    } catch {}
+            <div style="text-align:right;">
+                <div style="color:var(--text3);font-size:11px;">${formatDate(h.sent_at)}</div>
+                ${h.error ? `<div style="color:var(--danger);font-size:10.5px;">${escHtml(h.error)}</div>` : ''}
+            </div>
+        </div>
+    `).join('');
 }
 
 // ── Utilities ─────────────────────────────────────────────

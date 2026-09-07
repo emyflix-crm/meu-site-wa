@@ -11,6 +11,7 @@
         .tz-btn { padding:7px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg3); color:var(--text2); font-size:12px; font-weight:500; cursor:pointer; transition:all 0.2s; white-space:nowrap; }
         .tz-btn:hover { border-color:var(--primary); color:var(--text); }
         .tz-btn.active { background:var(--primary-glow); border-color:var(--primary); color:var(--primary); font-weight:600; }
+        .client-action-btn { padding:5px 10px; border-radius:6px; font-size:12px; font-weight:600; border:none; cursor:pointer; display:inline-flex; align-items:center; gap:4px; }
     </style>
 </head>
 <body>
@@ -35,7 +36,6 @@
             <a class="nav-item" onclick="showPage('admin')" id="admin-nav" style="display:none"><span>🛡️</span> Painel Admin</a>
         </nav>
 
-        <!-- Status WhatsApp na Sidebar -->
         <div class="status-card" onclick="showPage('connect')" style="cursor:pointer" title="Clique para gerenciar conexão">
             <div class="status-dot disconnected" id="status-dot"></div>
             <div>
@@ -56,14 +56,14 @@
     <!-- MAIN CONTENT -->
     <div class="main">
         
-        <!-- BARRA DO PLANO / TESTE GRÁTIS NO TOPO -->
+        <!-- BARRA DO PLANO NO TOPO -->
         <div class="trial-banner" id="trial-banner">
             <div class="trial-badge-tag">
                 <span>⚡</span>
-                <span id="trial-days-text">Calculando período de teste...</span>
+                <span id="trial-days-text">Carregando plano...</span>
             </div>
-            <a href="https://wa.me/447404200049?text=Ol%C3%A1!%20Gostei%20do%20EmyFlix%20WA%20e%20quero%20ativar%20meu%20plano%20oficial." target="_blank" class="upgrade-btn">
-                💎 Ativar Acesso Vitalício / Mensal
+            <a href="https://wa.me/447404200049?text=Ol%C3%A1!%20Gostei%20do%20EmyFlix%20WA%20e%20quero%20ativar%20meu%20plano." target="_blank" class="upgrade-btn">
+                💎 Ativar / Fazer Upgrade
             </a>
         </div>
 
@@ -80,7 +80,7 @@
                 <div class="stat-card"><div class="stat-icon">📢</div><div class="stat-number" id="stat-campaigns">0</div><div class="stat-label">Campanhas Criadas</div></div>
             </div>
 
-            <!-- Banner Alerta de WhatsApp Desconectado (se aplicável) -->
+            <!-- Banner Alerta de WhatsApp Desconectado -->
             <div id="dash-connect-alert" style="display:none;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);border-radius:14px;padding:16px 20px;margin-bottom:20px;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
                 <div style="display:flex;align-items:center;gap:12px;">
                     <span style="font-size:26px;">⚠️</span>
@@ -107,7 +107,7 @@
             </div>
         </div>
 
-        <!-- 2. NOVO AGENDAMENTO (LAYOUT 2 COLUNAS: FORMULÁRIO + LIVE WHATSAPP PREVIEW) -->
+        <!-- 2. NOVO AGENDAMENTO (2 COLUNAS: FORMULÁRIO + LIVE WHATSAPP PREVIEW) -->
         <div id="page-schedule" class="page">
             <div class="page-header">
                 <h1>Criar Agendamento</h1>
@@ -115,8 +115,6 @@
             </div>
 
             <div class="schedule-grid-layout">
-                
-                <!-- COLUNA ESQUERDA: FORMULÁRIO COMPLETO -->
                 <div class="card form-card">
                     <form id="schedule-form" onsubmit="createSchedule(event)">
 
@@ -128,7 +126,7 @@
                             </select>
                         </div>
 
-                        <!-- Destinatários com Aba de Campanhas -->
+                        <!-- Destinatários -->
                         <div class="form-group">
                             <label>
                                 <span>📤 Destinatários</span>
@@ -143,12 +141,11 @@
 
                             <div style="position:relative;margin-top:8px;display:flex;gap:8px;">
                                 <input type="text" id="recipient-search" placeholder="🔍 Pesquisar grupos, contatos ou campanhas..." oninput="filterRecipients()">
-                                <button type="button" class="btn btn-secondary" onclick="forceRefreshDest()" title="Forçar atualização da lista da Evolution API" style="white-space:nowrap;font-size:12px;">🔄 Atualizar</button>
+                                <button type="button" class="btn btn-secondary" onclick="forceRefreshDest()" title="Forçar busca de novos grupos na Evolution API" style="white-space:nowrap;font-size:12px;">🔄 Atualizar</button>
                             </div>
 
-                            <div class="recipient-list" id="recipient-list"><div class="loading">Carregando destinatários...</div></div>
+                            <div class="recipient-list" id="recipient-list"><div class="loading">Carregando grupos do WhatsApp...</div></div>
                             
-                            <!-- Ação para salvar seleção atual como nova campanha -->
                             <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
                                 <div id="selected-tags" class="selected-tags"></div>
                                 <button type="button" class="btn btn-secondary" style="font-size:11.5px;padding:4px 10px;display:none;" id="btn-save-as-campaign" onclick="openSaveAsCampaignModal()">
@@ -196,7 +193,7 @@
                             <textarea id="schedule-message" rows="5" placeholder="Digite sua mensagem... Dica: use *negrito*, _itálico_ e quebras de linha!" oninput="updateLivePreview()"></textarea>
                         </div>
 
-                        <!-- Upload de Mídia com Múltiplos Arquivos -->
+                        <!-- Upload de Mídia -->
                         <div class="form-group">
                             <label>📎 Fotos ou Vídeos (opcional)</label>
                             <div class="upload-area" id="upload-area"
@@ -212,7 +209,6 @@
                             </div>
                             <div id="media-list" style="display:none;margin-top:10px;"></div>
                             
-                            <!-- Delay entre mídias extras -->
                             <div id="media-delay-wrap" style="display:none;margin-top:12px;background:var(--bg3);padding:14px;border-radius:10px;border:1px solid var(--border);">
                                 <label style="font-size:12px;font-weight:600;display:block;margin-bottom:8px;">⏱️ Intervalo entre o envio de cada mídia</label>
                                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -248,29 +244,27 @@
                     </form>
                 </div>
 
-                <!-- COLUNA DIREITA: SMARTPHONE MOCKUP COM PRÉVIA DO WHATSAPP AO VIVO -->
+                <!-- SMARTPHONE MOCKUP COM PRÉVIA DO WHATSAPP AO VIVO -->
                 <div class="preview-sticky">
                     <div class="phone-mockup">
                         <div class="phone-topbar">
                             <div class="phone-avatar">💬</div>
                             <div class="phone-chat-info">
-                                <div class="phone-chat-title" id="preview-target-title">Grupo / Contato</div>
+                                <div class="phone-chat-title" id="preview-target-title">Destinatários</div>
                                 <div class="phone-chat-sub">online</div>
                             </div>
                         </div>
                         <div class="phone-screen" id="phone-screen">
-                            <div class="phone-bubble" id="phone-bubble">
-                                <img id="preview-img" class="phone-bubble-img" style="display:none;" alt="Mídia">
-                                <div id="preview-text" style="white-space:pre-wrap;">Sua mensagem vai aparecer aqui exatamente como no WhatsApp...</div>
+                            <div class="phone-bubble">
+                                <div style="white-space:pre-wrap;"><span style="color:#8696a0;font-style:italic;">Sua mensagem vai aparecer aqui exatamente como no WhatsApp...</span></div>
                                 <div class="phone-bubble-meta">
-                                    <span id="preview-time-display">12:00</span>
+                                    <span>12:00</span>
                                     <span class="check-blue">✓✓</span>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Resumo do Disparo -->
                     <div class="schedule-summary-box">
                         <h3 style="font-size:14px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
                             <span>📊</span> Resumo da Operação
@@ -288,30 +282,181 @@
                             <span class="summary-val" id="summary-freq">Diário</span>
                         </div>
                         <div class="summary-item">
-                            <span class="summary-label">Tempo estimado de envio:</span>
+                            <span class="summary-label">Tempo estimado:</span>
                             <span class="summary-val" id="summary-duration" style="color:var(--primary);">~0 min</span>
                         </div>
                     </div>
                 </div>
-
             </div>
         </div>
 
-        <!-- 3. CAMPANHAS (GERENCIAMENTO DE LISTAS DE GRUPOS) -->
+        <!-- 3. CAMPANHAS (2 COLUNAS: CRIAR + TUTORIAL/PREÇOS) -->
         <div id="page-campaigns" class="page">
             <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
                 <div>
-                    <h1>Minhas Campanhas & Listas</h1>
-                    <p>Agrupe seus grupos favoritos em listas (ex: "Grupos VIP", "Afiliados") para agendar tudo em 1 clique!</p>
+                    <h1>📢 Minhas Campanhas & Listas</h1>
+                    <p>Agrupe seus grupos favoritos em listas para agendar tudo em 1 clique!</p>
                 </div>
-                <button class="btn btn-primary" onclick="openCreateCampaignModal()">➕ Criar Nova Campanha</button>
             </div>
 
-            <div class="card">
-                <div class="card-header">
-                    <h2>Campanhas Cadastradas</h2>
+            <div class="campaign-page-grid">
+                <!-- COLUNA ESQUERDA: CRIAR CAMPANHA + CAMPANHAS SALVAS -->
+                <div>
+                    <!-- CARD: CRIAR NOVA CAMPANHA (COM SELETOR DE GRUPOS INLINE) -->
+                    <div class="card" style="margin-bottom:20px;">
+                        <div class="card-header">
+                            <h2>➕ Criar Nova Campanha</h2>
+                        </div>
+                        <div style="padding:18px 22px;">
+
+                            <!-- Nome da campanha -->
+                            <div class="form-group" style="margin-bottom:14px;">
+                                <label>📝 Nome da Campanha</label>
+                                <input type="text" id="camp-create-name" placeholder="Ex: Grupos de Londres, Afiliados VIP, Ofertas Brasil...">
+                            </div>
+
+                            <!-- Selecionar instância -->
+                            <div class="form-group" style="margin-bottom:14px;">
+                                <label>📱 WhatsApp (puxar grupos de qual número)</label>
+                                <div style="display:flex;gap:8px;">
+                                    <select id="camp-instance-select" onchange="loadCampGroups()" style="flex:1;cursor:pointer;">
+                                        <option value="">Carregando...</option>
+                                    </select>
+                                    <button type="button" class="btn btn-secondary" onclick="loadCampGroups(true)" style="white-space:nowrap;font-size:12px;">🔄 Atualizar</button>
+                                </div>
+                            </div>
+
+                            <!-- Buscar grupos -->
+                            <div class="form-group" style="margin-bottom:10px;">
+                                <label>👥 Selecione os Grupos para esta Campanha</label>
+                                <input type="text" id="camp-group-search" placeholder="🔍 Buscar grupo pelo nome..." oninput="renderCampGroups()">
+                            </div>
+
+                            <!-- Lista de grupos com checkboxes -->
+                            <div id="camp-groups-list" class="recipient-list" style="max-height:250px;margin-bottom:12px;">
+                                <div class="loading">Carregando grupos do WhatsApp...</div>
+                            </div>
+
+                            <!-- Grupos selecionados (tags) -->
+                            <div style="margin-bottom:14px;">
+                                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">
+                                    ✅ Grupos selecionados: <span id="camp-selected-count" style="color:var(--primary);">0</span>
+                                </label>
+                                <div id="camp-selected-tags" style="display:flex;flex-wrap:wrap;gap:5px;max-height:80px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;min-height:36px;">
+                                    <span style="color:var(--text3);font-size:12px;font-style:italic;">Nenhum grupo selecionado</span>
+                                </div>
+                            </div>
+
+                            <!-- Botão salvar -->
+                            <button type="button" class="btn btn-primary btn-large" style="width:100%;padding:14px;font-size:15px;" onclick="saveCampDirect()" id="btn-save-camp-direct">
+                                💾 Salvar Campanha
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- CARD: CAMPANHAS CADASTRADAS -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>📋 Campanhas Salvas</h2>
+                            <span style="font-size:12px;color:var(--text3);" id="camp-saved-count">0 campanhas</span>
+                        </div>
+                        <div id="campaigns-list"><div class="loading">Carregando campanhas...</div></div>
+                    </div>
                 </div>
-                <div id="campaigns-list"><div class="loading">Carregando campanhas...</div></div>
+
+                <!-- COLUNA DIREITA: TUTORIAL + PREÇOS -->
+                <div>
+                    <!-- TUTORIAL PASSO A PASSO -->
+                    <div class="card" style="margin-bottom:20px;border-color:rgba(37,211,102,0.3);">
+                        <div class="card-header" style="background:rgba(37,211,102,0.06);">
+                            <h2 style="display:flex;align-items:center;gap:8px;">📖 Como Funciona?</h2>
+                        </div>
+                        <div style="padding:20px 22px;">
+                            <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:18px;">
+                                <div style="width:32px;height:32px;background:var(--primary);color:#000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0;">1</div>
+                                <div>
+                                    <div style="font-weight:700;font-size:14px;margin-bottom:3px;">Dê um nome para a campanha</div>
+                                    <div style="font-size:12px;color:var(--text2);">Ex: <strong>"Grupos de Londres"</strong>, "Afiliados VIP" ou "Ofertas Brasil". Cada campanha é uma lista de grupos que você pode reutilizar.</div>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:18px;">
+                                <div style="width:32px;height:32px;background:var(--primary);color:#000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0;">2</div>
+                                <div>
+                                    <div style="font-weight:700;font-size:14px;margin-bottom:3px;">Selecione os grupos</div>
+                                    <div style="font-size:12px;color:var(--text2);">Clique nos grupos do seu WhatsApp que deseja incluir nesta campanha. Use a barra de busca para encontrar mais rápido!</div>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:18px;">
+                                <div style="width:32px;height:32px;background:var(--primary);color:#000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0;">3</div>
+                                <div>
+                                    <div style="font-weight:700;font-size:14px;margin-bottom:3px;">Salve a campanha</div>
+                                    <div style="font-size:12px;color:var(--text2);">Clique em <strong>"💾 Salvar Campanha"</strong> e pronto! Sua lista fica salva para sempre.</div>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:14px;align-items:flex-start;">
+                                <div style="width:32px;height:32px;background:var(--primary);color:#000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0;">4</div>
+                                <div>
+                                    <div style="font-weight:700;font-size:14px;margin-bottom:3px;">Agende em 1 clique!</div>
+                                    <div style="font-size:12px;color:var(--text2);">Na hora de criar um agendamento, basta clicar <strong>"⚡ Agendar Nesta Lista"</strong> na campanha salva. Todos os grupos serão selecionados automaticamente!</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TABELA DE PREÇOS -->
+                    <div class="card" style="border-color:rgba(139,92,246,0.3);">
+                        <div class="card-header" style="background:rgba(139,92,246,0.06);">
+                            <h2 style="display:flex;align-items:center;gap:8px;">💎 Planos & Preços</h2>
+                        </div>
+                        <div style="padding:18px 22px;">
+                            <!-- Trial -->
+                            <div style="border:1px solid rgba(245,158,11,0.3);border-radius:12px;padding:14px 16px;margin-bottom:12px;background:rgba(245,158,11,0.04);">
+                                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                                    <div>
+                                        <div style="font-size:14px;font-weight:700;color:var(--warning);">⚡ Trial Grátis</div>
+                                        <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">7 dias • 1 WA • 1 agendamento • máx. 25 grupos</div>
+                                    </div>
+                                    <div style="font-size:18px;font-weight:800;color:var(--warning);">R$ 0</div>
+                                </div>
+                            </div>
+                            <!-- Start -->
+                            <div style="border:1px solid rgba(59,130,246,0.3);border-radius:12px;padding:14px 16px;margin-bottom:12px;background:rgba(59,130,246,0.04);">
+                                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                                    <div>
+                                        <div style="font-size:14px;font-weight:700;color:var(--info);">🥉 Plano Start</div>
+                                        <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">1 WA • 2 agendamentos • máx. 50 grupos</div>
+                                    </div>
+                                    <div style="font-size:18px;font-weight:800;color:var(--info);">R$ 39<span style="font-size:12px">,90</span><span style="font-size:11px;color:var(--text3);font-weight:400">/mês</span></div>
+                                </div>
+                            </div>
+                            <!-- Pro -->
+                            <div style="border:1px solid rgba(139,92,246,0.4);border-radius:12px;padding:14px 16px;margin-bottom:12px;background:rgba(139,92,246,0.06);position:relative;">
+                                <div style="position:absolute;top:-9px;right:14px;background:var(--purple);color:#fff;font-size:10px;font-weight:700;padding:2px 10px;border-radius:12px;">⭐ POPULAR</div>
+                                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                                    <div>
+                                        <div style="font-size:14px;font-weight:700;color:var(--purple);">🚀 Plano Pro</div>
+                                        <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">2 WAs • 4 agendamentos • máx. 150 grupos</div>
+                                    </div>
+                                    <div style="font-size:18px;font-weight:800;color:var(--purple);">R$ 79<span style="font-size:12px">,90</span><span style="font-size:11px;color:var(--text3);font-weight:400">/mês</span></div>
+                                </div>
+                            </div>
+                            <!-- Diamante -->
+                            <div style="border:1px solid rgba(37,211,102,0.4);border-radius:12px;padding:14px 16px;margin-bottom:16px;background:rgba(37,211,102,0.04);">
+                                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                                    <div>
+                                        <div style="font-size:14px;font-weight:700;color:var(--primary);">💎 Plano Diamante</div>
+                                        <div style="font-size:11.5px;color:var(--text3);margin-top:2px;">4 WAs • 8 agendamentos • máx. 400 grupos</div>
+                                    </div>
+                                    <div style="font-size:18px;font-weight:800;color:var(--primary);">R$ 149<span style="font-size:12px">,90</span><span style="font-size:11px;color:var(--text3);font-weight:400">/mês</span></div>
+                                </div>
+                            </div>
+                            <!-- CTA -->
+                            <a href="https://wa.me/447404200049?text=Ol%C3%A1!%20Gostei%20do%20EmyFlix%20WA%20e%20quero%20ativar%20meu%20plano." target="_blank" class="btn btn-primary" style="width:100%;text-align:center;justify-content:center;padding:13px;font-size:14px;font-weight:700;text-decoration:none;">
+                                💬 Falar com Suporte / Ativar Plano
+                            </a>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -326,13 +471,12 @@
             </div>
         </div>
 
-        <!-- 5. WHATSAPP CONEXÃO & QR CODE DIRETO -->
+        <!-- 5. WHATSAPP CONEXÃO -->
         <div id="page-connect" class="page">
             <div class="page-header">
                 <h1>Conectar WhatsApp</h1>
                 <p>Conecte seus números para iniciar os disparos</p>
             </div>
-
             <div class="card" style="max-width:680px;margin:0 auto;">
                 <div class="card-header">
                     <h2>Seus Aparelhos Conectados</h2>
@@ -375,16 +519,22 @@
             </div>
         </div>
 
-        <!-- 6. ADMIN PANEL -->
+        <!-- 6. PAINEL ADMIN COM GESTÃO TOTAL DE CLIENTES E LIMITES -->
         <div id="page-admin" class="page">
-            <div class="page-header">
-                <h1>Painel do Administrador</h1>
-                <p>Gerencie seus clientes, planos de assinatura e limites de instâncias</p>
+            <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                <div>
+                    <h1>Painel do Administrador</h1>
+                    <p>Controle total: edite planos, altere limites de grupos e agendamentos ou exclua clientes</p>
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn-primary" onclick="openAdminCreateModal()">➕ Novo Cliente</button>
+                    <button class="btn btn-secondary" onclick="loadAdminUsers()">🔄 Atualizar</button>
+                </div>
             </div>
+
             <div class="card" style="margin-bottom:20px">
                 <div class="card-header">
                     <h2>👥 Clientes Registrados</h2>
-                    <button class="btn btn-primary" onclick="loadAdminUsers()">🔄 Atualizar</button>
                 </div>
                 <div id="admin-users-list"><div class="loading">Carregando usuários...</div></div>
             </div>
@@ -403,21 +553,122 @@
                 </div>
                 <div id="admin-history-list"><div class="loading">Clique em Atualizar para carregar</div></div>
             </div>
-
-            <!-- Modal Grupos de Usuário Admin -->
-            <div id="admin-groups-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:999;overflow-y:auto">
-                <div style="background:var(--bg2);border-radius:16px;max-width:540px;margin:40px auto;padding:28px;position:relative;border:1px solid var(--border)">
-                    <button onclick="closeGroupsModal()" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--text3)">✕</button>
-                    <h2 id="modal-user-name" style="margin-bottom:4px">Grupos</h2>
-                    <p id="modal-user-instance" style="font-size:12px;color:var(--text3);margin-bottom:18px"></p>
-                    <div id="modal-groups-list"><div class="loading">Carregando grupos...</div></div>
-                </div>
-            </div>
         </div>
 
     </div>
 
-    <!-- MODAL: CRIAR NOVA CAMPANHA / SALVAR SELEÇÃO -->
+    <!-- MODAL ADMIN: EDITAR CLIENTE & LIMITES CUSTOMIZADOS -->
+    <div id="modal-admin-edit" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;align-items:center;justify-content:center;">
+        <div style="background:var(--bg2);border-radius:18px;max-width:520px;width:92%;padding:28px;border:1px solid var(--border);max-height:90vh;overflow-y:auto;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                <h3 style="font-size:18px;">✏️ Editar Cliente & Limites</h3>
+                <button onclick="closeAdminEditModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button>
+            </div>
+            <input type="hidden" id="admin-edit-id">
+
+            <div class="form-group">
+                <label>Nome do Cliente</label>
+                <input type="text" id="admin-edit-name">
+            </div>
+
+            <div class="form-group">
+                <label>Instância WhatsApp (Evolution API)</label>
+                <input type="text" id="admin-edit-instance">
+            </div>
+
+            <div class="form-group">
+                <label>Plano</label>
+                <select id="admin-edit-plan" onchange="onAdminPlanChange(this.value)">
+                    <option value="trial">⚡ Trial (7 dias) — Padrão: 1 WA / 1 Agend. / 25 grupos</option>
+                    <option value="start">🥉 Start (R$ 39,90) — Padrão: 1 WA / 2 Agend. / 50 grupos</option>
+                    <option value="pro">🚀 Pro (R$ 79,90) — Padrão: 2 WAs / 4 Agend. / 150 grupos</option>
+                    <option value="diamond">💎 Diamante (R$ 149,90) — Padrão: 4 WAs / 8 Agend. / 400 grupos</option>
+                    <option value="unlimited">👑 Ilimitado (Admin)</option>
+                </select>
+            </div>
+
+            <!-- LIMITES CUSTOMIZÁVEIS (LIVRE ACESSO DO ADMIN) -->
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:18px;">
+                <label style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:8px;display:block;">
+                    ⚙️ Customizar Limites do Cliente (Sobrescrever Regras)
+                </label>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+                    <div>
+                        <label style="font-size:11px;color:var(--text2);margin-bottom:4px;display:block;">WhatsApps</label>
+                        <input type="number" id="admin-edit-max-instances" min="1" max="50">
+                    </div>
+                    <div>
+                        <label style="font-size:11px;color:var(--text2);margin-bottom:4px;display:block;">Agendamentos</label>
+                        <input type="number" id="admin-edit-max-schedules" min="1" max="200">
+                    </div>
+                    <div>
+                        <label style="font-size:11px;color:var(--text2);margin-bottom:4px;display:block;">Máx. Grupos</label>
+                        <input type="number" id="admin-edit-max-recipients" min="1" max="5000">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Status da Conta</label>
+                <select id="admin-edit-active">
+                    <option value="true">✅ Ativo</option>
+                    <option value="false">❌ Desativado / Bloqueado</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>🔑 Redefinir Senha <span style="font-size:11px;color:var(--text3);">(deixe vazio para não alterar)</span></label>
+                <input type="password" id="admin-edit-password" placeholder="Nova senha (mínimo 8 caracteres)">
+            </div>
+
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
+                <button type="button" class="btn btn-secondary" onclick="closeAdminEditModal()">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="saveAdminEdit()">✓ Salvar Alterações</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL ADMIN: CRIAR NOVO CLIENTE -->
+    <div id="modal-admin-create" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999;align-items:center;justify-content:center;">
+        <div style="background:var(--bg2);border-radius:18px;max-width:480px;width:92%;padding:28px;border:1px solid var(--border);max-height:90vh;overflow-y:auto;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                <h3 style="font-size:18px;">➕ Novo Cliente</h3>
+                <button onclick="closeAdminCreateModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button>
+            </div>
+            <div class="form-group">
+                <label>Nome do Cliente</label>
+                <input type="text" id="admin-create-name" placeholder="Ex: Pedro Silva">
+            </div>
+            <div class="form-group">
+                <label>E-mail de Login</label>
+                <input type="email" id="admin-create-email" placeholder="pedro@email.com">
+            </div>
+            <div class="form-group">
+                <label>Senha Inicial</label>
+                <input type="password" id="admin-create-password" placeholder="Mínimo 8 caracteres">
+            </div>
+            <div class="form-group">
+                <label>Nome da Instância WhatsApp</label>
+                <input type="text" id="admin-create-instance" placeholder="ex: pedro-vendas">
+            </div>
+            <div class="form-group">
+                <label>Plano Inicial</label>
+                <select id="admin-create-plan">
+                    <option value="trial">⚡ Trial (7 dias)</option>
+                    <option value="start" selected>🥉 Start (R$ 39,90) — 1 WA / 2 Agend. / 50 grupos</option>
+                    <option value="pro">🚀 Pro (R$ 79,90) — 2 WAs / 4 Agend. / 150 grupos</option>
+                    <option value="diamond">💎 Diamante (R$ 149,90) — 4 WAs / 8 Agend. / 400 grupos</option>
+                    <option value="unlimited">👑 Ilimitado (Admin)</option>
+                </select>
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
+                <button type="button" class="btn btn-secondary" onclick="closeAdminCreateModal()">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="btn-admin-create-submit" onclick="submitAdminCreate()">✓ Criar Cliente</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: SALVAR COMO CAMPANHA -->
     <div id="modal-campaign" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:999;align-items:center;justify-content:center;">
         <div style="background:var(--bg2);border-radius:16px;max-width:480px;width:92%;padding:28px;border:1px solid var(--border);">
             <h3 style="margin-bottom:8px;">📢 Nova Campanha (Lista de Grupos)</h3>

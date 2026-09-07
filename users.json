@@ -8,7 +8,18 @@
     "plan": "unlimited",
     "plan_expires": null,
     "created_at": "2026-03-06T18:31:26.638Z",
-    "active": true
+    "active": true,
+    "instance_name": "teste-nascimento",
+    "max_instances": 999,
+    "max_schedules": 9999,
+    "max_recipients": 99999,
+    "instances": [
+      {
+        "name": "teste-nascimento",
+        "label": "Principal (Admin)",
+        "connected": false
+      }
+    ]
   },
   {
     "id": "1772823917388",
@@ -20,7 +31,17 @@
     "plan_expires": "2026-03-13T20:02:29.877Z",
     "created_at": "2026-03-06T19:05:17.475Z",
     "active": true,
-    "instance_name": "emerson-nascimento"
+    "instance_name": "emerson-nascimento",
+    "max_instances": 1,
+    "max_schedules": 1,
+    "max_recipients": 25,
+    "instances": [
+      {
+        "name": "emerson-nascimento",
+        "label": "Principal",
+        "connected": false
+      }
+    ]
   },
   {
     "id": "1772902080469",
@@ -28,11 +49,21 @@
     "email": "emersonteste@gmail.com",
     "password": "$2b$10$mMKXZvQiKh4diTCA8ceV5OfRaaAqQbtganLxvjnOu2CetSN9lgIty",
     "role": "user",
-    "plan": "semiannual",
+    "plan": "pro",
     "plan_expires": "2026-09-03T15:48:00.551Z",
     "instance_name": "emerson-teste",
     "created_at": "2026-03-07T16:48:00.551Z",
-    "active": true
+    "active": true,
+    "max_instances": 2,
+    "max_schedules": 4,
+    "max_recipients": 150,
+    "instances": [
+      {
+        "name": "emerson-teste",
+        "label": "Principal",
+        "connected": false
+      }
+    ]
   },
   {
     "id": "1773100000001",
@@ -40,10 +71,20 @@
     "email": "juliana@gmail.com",
     "password": "$2b$10$6wR9kwXk/JFmmT5nR4b5g.41h7/ITHGXzxhX94YQn14cMb3TzCYqu",
     "role": "user",
-    "plan": "unlimited",
+    "plan": "diamond",
     "plan_expires": null,
     "instance_name": "juliana-nascimento",
     "created_at": "2026-03-08T00:00:00.000Z",
-    "active": true
+    "active": true,
+    "max_instances": 4,
+    "max_schedules": 8,
+    "max_recipients": 400,
+    "instances": [
+      {
+        "name": "juliana-nascimento",
+        "label": "Principal",
+        "connected": false
+      }
+    ]
   }
 ]

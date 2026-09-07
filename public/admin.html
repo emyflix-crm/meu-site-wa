@@ -299,13 +299,33 @@
             <div class="field"><label>Instância WhatsApp</label><input type="text" id="edit-instance"></div>
             <div class="field">
                 <label>Alterar Plano</label>
-                <select id="edit-plan">
-                    <option value="trial">⚡ Trial (7 dias) — 1 WA / 25 grupos</option>
-                    <option value="start">🥉 Start (R$ 39,90) — 1 WA / 2 Agend. / 50 grupos</option>
-                    <option value="pro">🚀 Pro (R$ 79,90) — 2 WAs / 4 Agend. / 150 grupos</option>
-                    <option value="diamond">💎 Diamante (R$ 149,90) — 4 WAs / 8 Agend. / 400 grupos</option>
+                <select id="edit-plan" onchange="onPlanChange(this.value)">
+                    <option value="trial">⚡ Trial (7 dias) — Padrão: 1 WA / 1 Agend. / 25 grupos</option>
+                    <option value="start">🥉 Start (R$ 39,90) — Padrão: 1 WA / 2 Agend. / 50 grupos</option>
+                    <option value="pro">🚀 Pro (R$ 79,90) — Padrão: 2 WAs / 4 Agend. / 150 grupos</option>
+                    <option value="diamond">💎 Diamante (R$ 149,90) — Padrão: 4 WAs / 8 Agend. / 400 grupos</option>
                     <option value="unlimited">👑 Ilimitado (Admin)</option>
                 </select>
+            </div>
+            <!-- LIMITES CUSTOMIZÁVEIS -->
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
+                <label style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:8px;display:block;">
+                    ⚙️ Customizar Limites do Cliente
+                </label>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                    <div>
+                        <label style="font-size:11px;color:var(--text2);margin-bottom:3px;display:block;">WhatsApps</label>
+                        <input type="number" id="edit-max-instances" min="1" max="50">
+                    </div>
+                    <div>
+                        <label style="font-size:11px;color:var(--text2);margin-bottom:3px;display:block;">Agendamentos</label>
+                        <input type="number" id="edit-max-schedules" min="1" max="200">
+                    </div>
+                    <div>
+                        <label style="font-size:11px;color:var(--text2);margin-bottom:3px;display:block;">Máx. Grupos</label>
+                        <input type="number" id="edit-max-recipients" min="1" max="5000">
+                    </div>
+                </div>
             </div>
             <div class="field"><label>Status</label>
                 <select id="edit-active">
@@ -434,12 +454,29 @@
             btn.disabled = false; btn.textContent = '✓ Criar Cliente';
         }
 
+        function onPlanChange(plan) {
+            const defaults = {
+                trial: { inst: 1, sched: 1, rec: 25 },
+                start: { inst: 1, sched: 2, rec: 50 },
+                pro: { inst: 2, sched: 4, rec: 150 },
+                diamond: { inst: 4, sched: 8, rec: 400 },
+                unlimited: { inst: 999, sched: 9999, rec: 99999 }
+            };
+            const d = defaults[plan] || defaults.start;
+            document.getElementById('edit-max-instances').value = d.inst;
+            document.getElementById('edit-max-schedules').value = d.sched;
+            document.getElementById('edit-max-recipients').value = d.rec;
+        }
+
         function openEditModal(u) {
             document.getElementById('edit-id').value = u.id;
             document.getElementById('edit-name').value = u.name;
             document.getElementById('edit-instance').value = u.instance_name || '';
-            document.getElementById('edit-plan').value = u.plan;
-            document.getElementById('edit-active').value = String(u.active);
+            document.getElementById('edit-plan').value = u.plan || 'start';
+            document.getElementById('edit-max-instances').value = u.max_instances || 1;
+            document.getElementById('edit-max-schedules').value = u.max_schedules || 2;
+            document.getElementById('edit-max-recipients').value = u.max_recipients || 50;
+            document.getElementById('edit-active').value = String(u.active !== false);
             document.getElementById('edit-password').value = '';
             document.getElementById('modal-edit').classList.add('open');
         }
@@ -454,16 +491,18 @@
                 name: document.getElementById('edit-name').value,
                 instance_name: document.getElementById('edit-instance').value,
                 plan: document.getElementById('edit-plan').value,
+                max_instances: parseInt(document.getElementById('edit-max-instances').value) || 1,
+                max_schedules: parseInt(document.getElementById('edit-max-schedules').value) || 2,
+                max_recipients: parseInt(document.getElementById('edit-max-recipients').value) || 50,
                 active: document.getElementById('edit-active').value === 'true'
             };
+            if (newPassword) body.password = newPassword;
+
             const r = await authFetch(`/admin/users/${id}`, { method: 'PUT', body: JSON.stringify(body) });
             const data = await r.json();
             if (!data.success) { toast(data.error || 'Erro ao salvar', 'err'); return; }
 
-            if (newPassword) {
-                await authFetch(`/admin/users/${id}/reset-password`, { method: 'POST', body: JSON.stringify({ newPassword }) });
-            }
-            toast('✅ Cliente e plano atualizados!', 'ok');
+            toast('✅ Cliente e limites atualizados com sucesso!', 'ok');
             closeModal('modal-edit');
             loadUsers();
         }

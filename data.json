@@ -1,5 +1,6 @@
 {
   "schedules": [],
   "history": [],
-  "campaigns": []
+  "campaigns": [],
+  "groupsCache": {}
 }

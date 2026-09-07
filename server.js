@@ -31,7 +31,7 @@ const USERS_FILE  = process.env.USERS_FILE || './users.json';
 const LOGS_DIR    = process.env.LOGS_DIR   || './logs';
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'public', 'uploads');
 
-// ── Planos & Limites de Proteção do Servidor ──────────────
+// ── Planos & Limites Padrão ───────────────────────────────
 const PLANS = {
     trial: {
         name: 'Trial 7 Dias',
@@ -68,9 +68,9 @@ const PLANS = {
     unlimited: {
         name: 'Admin Ilimitado',
         days: null,
-        max_instances: 99,
-        max_schedules: 999,
-        max_recipients: 9999,
+        max_instances: 999,
+        max_schedules: 9999,
+        max_recipients: 99999,
         price: null
     }
 };
@@ -147,11 +147,8 @@ const upload = multer({
     storage,
     limits: { fileSize: 50 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-        if (ALLOWED_MIMETYPES.has(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error(`Tipo de arquivo não permitido: ${file.mimetype}`));
-        }
+        if (ALLOWED_MIMETYPES.has(file.mimetype)) cb(null, true);
+        else cb(new Error(`Tipo de arquivo não permitido: ${file.mimetype}`));
     }
 });
 
@@ -165,21 +162,20 @@ function queueDBWrite(fn) {
 function loadDB() {
     const dir = path.dirname(DB_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ schedules: [], history: [], campaigns: [] }, null, 2));
+    if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ schedules: [], history: [], campaigns: [], groupsCache: {} }, null, 2));
     try {
         const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         if (!data.campaigns) data.campaigns = [];
+        if (!data.groupsCache) data.groupsCache = {};
         return data;
     } catch (e) {
         logger.error('Failed to parse DB file', { err: e.message });
-        return { schedules: [], history: [], campaigns: [] };
+        return { schedules: [], history: [], campaigns: [], groupsCache: {} };
     }
 }
 function saveDB(data) {
     return queueDBWrite(() => {
-        if (data.history && data.history.length > 2000) {
-            data.history = data.history.slice(-2000);
-        }
+        if (data.history && data.history.length > 2000) data.history = data.history.slice(-2000);
         fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
     });
 }
@@ -193,13 +189,38 @@ function loadUsers() {
             password: bcrypt.hashSync('Admin123!', 10),
             role: 'admin', plan: 'unlimited', plan_expires: null,
             created_at: new Date().toISOString(), active: true,
-            max_instances: 99, instances: []
+            instance_name: ADMIN_INSTANCE,
+            max_instances: 999, max_schedules: 9999, max_recipients: 99999,
+            instances: [{ name: ADMIN_INSTANCE, label: 'Principal (Admin)', connected: false }]
         };
         fs.writeFileSync(USERS_FILE, JSON.stringify([admin], null, 2));
-        logger.info('Created default admin user');
     }
-    try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); }
-    catch (e) { logger.error('Failed to parse users file', { err: e.message }); return []; }
+    try {
+        const users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+        let modified = false;
+        users.forEach(u => {
+            if (u.role === 'admin') {
+                if (!u.instance_name) { u.instance_name = ADMIN_INSTANCE; modified = true; }
+                if (!u.plan) { u.plan = 'unlimited'; modified = true; }
+                if (!u.max_instances) { u.max_instances = 999; modified = true; }
+                if (!u.max_schedules) { u.max_schedules = 9999; modified = true; }
+                if (!u.max_recipients) { u.max_recipients = 99999; modified = true; }
+                if (!u.instances || !u.instances.length) {
+                    u.instances = [{ name: ADMIN_INSTANCE, label: 'Principal (Admin)', connected: false }];
+                    modified = true;
+                }
+            } else {
+                const plan = getUserPlan(u);
+                if (u.max_instances === undefined) { u.max_instances = plan.max_instances; modified = true; }
+                if (u.max_schedules === undefined) { u.max_schedules = plan.max_schedules; modified = true; }
+                if (u.max_recipients === undefined) { u.max_recipients = plan.max_recipients; modified = true; }
+            }
+        });
+        if (modified) saveUsers(users);
+        return users;
+    } catch (e) {
+        return [];
+    }
 }
 function saveUsers(users) {
     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
@@ -212,7 +233,7 @@ function getCache(key) {
     if (item && item.expiresAt > Date.now()) return item.data;
     return null;
 }
-function setCache(key, data, ttlMs = 45000) {
+function setCache(key, data, ttlMs = 40000) {
     memoryCache.set(key, { data, expiresAt: Date.now() + ttlMs });
 }
 
@@ -234,9 +255,8 @@ app.use(morgan('combined', { stream: { write: msg => logger.http(msg.trim()) } }
 app.get('/app.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 
-// ── Rate limiting ─────────────────────────────────────────
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' } });
-const apiLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 150, message: { error: 'Muitas requisições. Aguarde um momento.' } });
+const apiLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 200, message: { error: 'Muitas requisições. Aguarde um momento.' } });
 app.use('/api/', apiLimiter);
 
 // ── Auth middleware ───────────────────────────────────────
@@ -248,7 +268,7 @@ function authMiddleware(req, res, next) {
         const users = loadUsers();
         const user = users.find(u => u.id === decoded.id);
         if (!user || !user.active) return res.status(401).json({ error: 'Conta inativa' });
-        if (user.plan !== 'unlimited' && user.plan_expires && new Date(user.plan_expires) < new Date()) {
+        if (user.role !== 'admin' && user.plan !== 'unlimited' && user.plan_expires && new Date(user.plan_expires) < new Date()) {
             return res.status(403).json({ error: 'Seu plano expirou. Entre em contato para renovar.', expired: true });
         }
         req.user = user;
@@ -258,9 +278,7 @@ function authMiddleware(req, res, next) {
     }
 }
 function adminMiddleware(req, res, next) {
-    if (req.user?.role !== 'admin') {
-        return res.status(403).json({ error: 'Acesso restrito' });
-    }
+    if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Acesso restrito' });
     next();
 }
 
@@ -278,7 +296,7 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
         return res.status(401).json({ error: 'Email ou senha incorretos' });
     }
     if (!user.active) return res.status(401).json({ error: 'Conta desativada' });
-    if (user.plan !== 'unlimited' && user.plan_expires && new Date(user.plan_expires) < new Date()) {
+    if (user.role !== 'admin' && user.plan !== 'unlimited' && user.plan_expires && new Date(user.plan_expires) < new Date()) {
         return res.status(403).json({ error: 'Seu plano expirou. Entre em contato com o suporte.', expired: true });
     }
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
@@ -288,10 +306,11 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
         user: {
             id: user.id, name: user.name, email: user.email, role: user.role,
             plan: user.plan, plan_name: planInfo.name, plan_expires: user.plan_expires,
-            instance_name: user.instance_name, instances: user.instances || [],
-            max_instances: planInfo.max_instances,
-            max_schedules: planInfo.max_schedules,
-            max_recipients: planInfo.max_recipients
+            instance_name: user.instance_name || (user.role === 'admin' ? ADMIN_INSTANCE : null),
+            instances: user.instances || [],
+            max_instances: user.role === 'admin' ? 999 : (user.max_instances || planInfo.max_instances),
+            max_schedules: user.role === 'admin' ? 9999 : (user.max_schedules || planInfo.max_schedules),
+            max_recipients: user.role === 'admin' ? 99999 : (user.max_recipients || planInfo.max_recipients)
         }
     });
 });
@@ -301,10 +320,11 @@ app.get('/auth/me', authMiddleware, (req, res) => {
     const planInfo = getUserPlan(req.user);
     res.json({
         ...safe,
+        instance_name: req.user.instance_name || (req.user.role === 'admin' ? ADMIN_INSTANCE : null),
         plan_name: planInfo.name,
-        max_instances: planInfo.max_instances,
-        max_schedules: planInfo.max_schedules,
-        max_recipients: planInfo.max_recipients
+        max_instances: req.user.role === 'admin' ? 999 : (req.user.max_instances || planInfo.max_instances),
+        max_schedules: req.user.role === 'admin' ? 9999 : (req.user.max_schedules || planInfo.max_schedules),
+        max_recipients: req.user.role === 'admin' ? 99999 : (req.user.max_recipients || planInfo.max_recipients)
     });
 });
 
@@ -319,17 +339,9 @@ app.get('/api/campaigns', authMiddleware, (req, res) => {
 
 app.post('/api/campaigns', authMiddleware, (req, res) => {
     const { name, recipients } = req.body;
-    if (!name || !recipients?.length) {
-        return res.status(400).json({ error: 'Nome e destinatários da campanha são obrigatórios' });
-    }
+    if (!name || !recipients?.length) return res.status(400).json({ error: 'Nome e destinatários são obrigatórios' });
     const db = loadDB();
-    const campaign = {
-        id: Date.now().toString(),
-        userId: req.user.id,
-        name: name.trim(),
-        recipients,
-        created_at: new Date().toISOString()
-    };
+    const campaign = { id: Date.now().toString(), userId: req.user.id, name: name.trim(), recipients, created_at: new Date().toISOString() };
     db.campaigns.push(campaign);
     saveDB(db);
     res.json({ success: true, campaign });
@@ -348,50 +360,79 @@ app.delete('/api/campaigns/:id', authMiddleware, (req, res) => {
 app.get('/api/groups', authMiddleware, async (req, res) => {
     const requestedInst = req.query.instance;
     const forceRefresh = req.query.refresh === 'true';
-    let inst = req.user.instance_name;
+
+    // Determina a instância correta (admin tem livre acesso)
+    let inst = req.user.instance_name || (req.user.role === 'admin' ? ADMIN_INSTANCE : null);
     if (requestedInst) {
-        const users = loadUsers();
-        const user = users.find(u => u.id === req.user.id);
-        const instances = user?.instances || [];
-        if (requestedInst === user?.instance_name || instances.find(i => i.name === requestedInst)) {
+        if (req.user.role === 'admin') {
             inst = requestedInst;
+        } else {
+            const users = loadUsers();
+            const user = users.find(u => u.id === req.user.id);
+            const instances = user?.instances || [];
+            if (requestedInst === user?.instance_name || instances.find(i => i.name === requestedInst)) {
+                inst = requestedInst;
+            }
         }
     }
+
+    if (!inst) inst = ADMIN_INSTANCE;
     if (!inst || !EVOLUTION_API_URL) return res.json([]);
 
     const cacheKey = `groups_${inst}`;
+    const db = loadDB();
+    if (!db.groupsCache) db.groupsCache = {};
+    const diskCached = db.groupsCache[inst];
+
+    // 1. Se não for refresh forçado, retorna INSTANTANEAMENTE (0ms) do cache
     if (!forceRefresh) {
-        const cached = getCache(cacheKey);
-        if (cached) return res.json(cached);
+        const memCached = getCache(cacheKey);
+        if (memCached) return res.json(memCached);
+        if (diskCached && Array.isArray(diskCached.groups) && diskCached.groups.length > 0) {
+            setCache(cacheKey, diskCached.groups, 300000); // 5 min
+            return res.json(diskCached.groups);
+        }
     }
 
     try {
         const r = await axios.get(`${EVOLUTION_API_URL}/group/fetchAllGroups/${inst}?getParticipants=false`, {
-            headers: evoHeaders(), timeout: 10000
+            headers: evoHeaders(), timeout: 15000
         });
         const groups = Array.isArray(r.data) ? r.data : [];
         groups.sort((a, b) => (b.lastMessageTimestamp || b.creation || 0) - (a.lastMessageTimestamp || a.creation || 0));
-        setCache(cacheKey, groups, 60000);
+        setCache(cacheKey, groups, 300000); // 5 min em memória
+        db.groupsCache[inst] = { groups, updatedAt: new Date().toISOString() };
+        saveDB(db);
         res.json(groups);
     } catch (e) {
-        const old = memoryCache.get(cacheKey)?.data;
-        if (old) return res.json(old);
-        res.status(500).json({ error: e.message });
+        // Se a chamada falhou mas tínhamos cache no disco, retorna ele sem travar o cliente!
+        if (diskCached && Array.isArray(diskCached.groups) && diskCached.groups.length > 0) {
+            return res.json(diskCached.groups);
+        }
+        res.status(500).json({ error: 'WhatsApp desconectado ou sincronizando na Evolution API: ' + e.message });
     }
 });
 
 app.get('/api/contacts', authMiddleware, async (req, res) => {
     const requestedInst = req.query.instance;
-    let inst = req.user.instance_name;
+    const forceRefresh = req.query.refresh === 'true';
+    let inst = req.user.instance_name || (req.user.role === 'admin' ? ADMIN_INSTANCE : null);
     if (requestedInst) {
-        const users = loadUsers();
-        const user = users.find(u => u.id === req.user.id);
-        const instances = user?.instances || [];
-        if (requestedInst === user?.instance_name || instances.find(i => i.name === requestedInst)) {
-            inst = requestedInst;
+        if (req.user.role === 'admin') inst = requestedInst;
+        else {
+            const users = loadUsers();
+            const user = users.find(u => u.id === req.user.id);
+            const instances = user?.instances || [];
+            if (requestedInst === user?.instance_name || instances.find(i => i.name === requestedInst)) inst = requestedInst;
         }
     }
     if (!inst || !EVOLUTION_API_URL) return res.json([]);
+
+    const cacheKey = `contacts_${inst}`;
+    if (!forceRefresh) {
+        const cached = getCache(cacheKey);
+        if (cached) return res.json(cached);
+    }
 
     const mapContacts = (arr) => arr
         .filter(c => (c.remoteJid || c.id || '').includes('@s.whatsapp.net'))
@@ -422,7 +463,7 @@ app.get('/api/contacts', authMiddleware, async (req, res) => {
 
 // ── STATUS & QRCODE ───────────────────────────────────────
 app.get('/api/status', authMiddleware, async (req, res) => {
-    const inst = req.user.instance_name;
+    let inst = req.user.instance_name || (req.user.role === 'admin' ? ADMIN_INSTANCE : null);
     if (!inst) return res.json({ instance: { state: 'no_instance' }, instance_name: null });
     if (!EVOLUTION_API_URL) return res.json({ instance: { state: 'disconnected' }, instance_name: inst });
     try {
@@ -434,7 +475,7 @@ app.get('/api/status', authMiddleware, async (req, res) => {
 });
 
 app.get('/api/qrcode', authMiddleware, async (req, res) => {
-    const inst = req.user.instance_name;
+    let inst = req.user.instance_name || (req.user.role === 'admin' ? ADMIN_INSTANCE : null);
     if (!inst) return res.status(400).json({ error: 'Nenhuma instância configurada' });
     if (!EVOLUTION_API_URL) return res.status(500).json({ error: 'EVOLUTION_API_URL não configurado' });
 
@@ -458,7 +499,7 @@ app.get('/api/qrcode', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/disconnect', authMiddleware, async (req, res) => {
-    const inst = req.user.instance_name;
+    let inst = req.user.instance_name || (req.user.role === 'admin' ? ADMIN_INSTANCE : null);
     if (!inst || !EVOLUTION_API_URL) return res.json({ success: true });
     try {
         await axios.delete(`${EVOLUTION_API_URL}/instance/logout/${inst}`, { headers: evoHeaders() });
@@ -468,16 +509,22 @@ app.post('/api/disconnect', authMiddleware, async (req, res) => {
     }
 });
 
-// ── MULTI-INSTANCE (COM TRAVA POR PLANO) ──────────────────
+// ── MULTI-INSTANCE (COM LIVRE ACESSO PARA ADMIN) ──────────
 app.get('/api/instances', authMiddleware, (req, res) => {
     const users = loadUsers();
     const user = users.find(u => u.id === req.user.id);
-    const instances = user.instances || [];
-    if (user.instance_name && !instances.find(i => i.name === user.instance_name)) {
+    let instances = user?.instances || [];
+
+    // Se for admin, garante que a instância ADMIN_INSTANCE apareça
+    if (user?.role === 'admin' && ADMIN_INSTANCE && !instances.find(i => i.name === ADMIN_INSTANCE)) {
+        instances.unshift({ name: ADMIN_INSTANCE, label: 'Principal (Admin)', connected: false });
+    } else if (user?.instance_name && !instances.find(i => i.name === user.instance_name)) {
         instances.unshift({ name: user.instance_name, label: 'Principal', connected: false });
     }
+
     const planInfo = getUserPlan(user);
-    res.json({ instances, max_instances: planInfo.max_instances || 1 });
+    const maxInst = user?.role === 'admin' ? 999 : (user?.max_instances || planInfo.max_instances || 1);
+    res.json({ instances, max_instances: maxInst });
 });
 
 app.post('/api/instances', authMiddleware, async (req, res) => {
@@ -487,10 +534,10 @@ app.post('/api/instances', authMiddleware, async (req, res) => {
     const user = users.find(u => u.id === req.user.id);
     const instances = user.instances || [];
     const planInfo = getUserPlan(user);
-    const maxInst = planInfo.max_instances || 1;
+    const maxInst = user.role === 'admin' ? 999 : (user.max_instances || planInfo.max_instances || 1);
 
     const totalUsed = instances.length + (user.instance_name && !instances.find(i => i.name === user.instance_name) ? 1 : 0);
-    if (totalUsed >= maxInst && user.role !== 'admin') {
+    if (user.role !== 'admin' && totalUsed >= maxInst) {
         return res.status(400).json({
             error: `Seu ${planInfo.name} permite no máximo ${maxInst} WhatsApp(s) conectado(s). Faça upgrade para conectar mais números!`
         });
@@ -515,7 +562,7 @@ app.delete('/api/instances/:name', authMiddleware, async (req, res) => {
     const instances = user.instances || [];
     const instName = req.params.name;
 
-    if (instName === user.instance_name) {
+    if (instName === user.instance_name && user.role !== 'admin') {
         return res.status(400).json({ error: 'Não é possível remover o WhatsApp principal' });
     }
 
@@ -565,7 +612,7 @@ app.get('/api/instances/:name/status', authMiddleware, async (req, res) => {
     }
 });
 
-// ── SCHEDULES (COM TRAVA DE AGENDAMENTOS E GRUPOS POR PLANO) ─
+// ── SCHEDULES (LIVRE ACESSO PARA ADMIN) ───────────────────
 app.get('/api/schedules', authMiddleware, (req, res) => {
     const db = loadDB();
     const schedules = req.user.role === 'admin'
@@ -584,26 +631,30 @@ app.post('/api/schedules', authMiddleware, (req, res) => {
     const db = loadDB();
     const planInfo = getUserPlan(req.user);
 
-    // 1. Trava de Quantidade de Destinatários por Agendamento
-    if (req.user.role !== 'admin' && recipients.length > planInfo.max_recipients) {
-        return res.status(400).json({
-            error: `Seu ${planInfo.name} permite no máximo ${planInfo.max_recipients} grupos por agendamento (você selecionou ${recipients.length}). Faça upgrade para enviar a mais grupos!`
-        });
-    }
+    // ADMIN TEM ACESSO 100% LIVRE SEM LIMITES
+    if (req.user.role !== 'admin') {
+        const maxRecipients = req.user.max_recipients || planInfo.max_recipients;
+        const maxSchedules = req.user.max_schedules || planInfo.max_schedules;
 
-    // 2. Trava de Quantidade de Agendamentos Ativos
-    const activeSchedulesCount = db.schedules.filter(s => s.userId === req.user.id && s.active).length;
-    if (req.user.role !== 'admin' && activeSchedulesCount >= planInfo.max_schedules) {
-        return res.status(400).json({
-            error: `Limite atingido! Seu ${planInfo.name} permite até ${planInfo.max_schedules} agendamento(s) ativo(s). Pause ou exclua um agendamento antigo, ou faça upgrade!`
-        });
+        if (recipients.length > maxRecipients) {
+            return res.status(400).json({
+                error: `Seu ${planInfo.name} permite no máximo ${maxRecipients} grupos por agendamento (você selecionou ${recipients.length}). Faça upgrade para enviar a mais grupos!`
+            });
+        }
+
+        const activeSchedulesCount = db.schedules.filter(s => s.userId === req.user.id && s.active).length;
+        if (activeSchedulesCount >= maxSchedules) {
+            return res.status(400).json({
+                error: `Limite atingido! Seu ${planInfo.name} permite até ${maxSchedules} agendamento(s) ativo(s). Pause ou exclua um agendamento antigo, ou faça upgrade!`
+            });
+        }
     }
 
     const schedule = {
         id: Date.now(),
         userId: req.user.id,
         userEmail: req.user.email,
-        instance_name: instance_name || req.user.instance_name,
+        instance_name: instance_name || req.user.instance_name || (req.user.role === 'admin' ? ADMIN_INSTANCE : null),
         timezone: timezone || TIMEZONE,
         recipients, message: message || '',
         media_url: media_url || '',
@@ -631,14 +682,12 @@ app.put('/api/schedules/:id', authMiddleware, (req, res) => {
     if (idx === -1) return res.status(404).json({ error: 'Não encontrado' });
     if (req.body.time && !validTime(req.body.time)) return res.status(400).json({ error: 'Formato HH:MM inválido' });
 
-    // Se estiver reativando um agendamento pausado, confere limite
     if (req.body.active === true && db.schedules[idx].active === false && req.user.role !== 'admin') {
         const planInfo = getUserPlan(req.user);
+        const maxSchedules = req.user.max_schedules || planInfo.max_schedules;
         const activeCount = db.schedules.filter(s => s.userId === req.user.id && s.active).length;
-        if (activeCount >= planInfo.max_schedules) {
-            return res.status(400).json({
-                error: `Limite de ${planInfo.max_schedules} agendamento(s) ativos atingido. Faça upgrade de plano!`
-            });
+        if (activeCount >= maxSchedules) {
+            return res.status(400).json({ error: `Limite de ${maxSchedules} agendamento(s) ativos atingido. Faça upgrade de plano!` });
         }
     }
 
@@ -678,7 +727,6 @@ app.post('/api/send-now/:id', authMiddleware, async (req, res) => {
     res.json({ success: true, message: `Disparando para ${schedule.recipients.length} destinatário(s)` });
 });
 
-// ── UPLOAD ────────────────────────────────────────────────
 app.post('/api/upload', authMiddleware, upload.single('media'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
     const url = `${APP_URL}/uploads/${req.file.filename}`;
@@ -687,7 +735,7 @@ app.post('/api/upload', authMiddleware, upload.single('media'), (req, res) => {
 
 // ── SEND ENGINE ───────────────────────────────────────────
 async function sendOne(schedule, recipient) {
-    const inst = schedule.instance_name;
+    const inst = schedule.instance_name || ADMIN_INSTANCE;
     if (!inst) return false;
 
     const isGroup = recipient.type === 'group' || recipient.id?.includes('@g.us');
@@ -753,7 +801,7 @@ async function sendOne(schedule, recipient) {
 }
 
 async function sendToAll(schedule) {
-    const inst = schedule.instance_name;
+    const inst = schedule.instance_name || ADMIN_INSTANCE;
     if (inst && EVOLUTION_API_URL) {
         try {
             const statusRes = await axios.get(`${EVOLUTION_API_URL}/instance/connectionState/${inst}`, { headers: evoHeaders() });
@@ -847,16 +895,16 @@ cron.schedule('* * * * *', () => {
     due.forEach(schedule => sendToAll(schedule));
 }, { timezone: 'UTC' });
 
-// ── ADMIN & BACKUP ────────────────────────────────────────
+// ── ADMIN COMPLETO: GESTÃO TOTAL DE CLIENTES E LIMITES ────
 app.get('/admin/users', authMiddleware, adminMiddleware, (req, res) => {
     const users = loadUsers().map(({ password, ...u }) => {
         const planInfo = getUserPlan(u);
         return {
             ...u,
             plan_name: planInfo.name,
-            max_instances: planInfo.max_instances || u.max_instances || 1,
-            max_schedules: planInfo.max_schedules || 2,
-            max_recipients: planInfo.max_recipients || 50,
+            max_instances: u.role === 'admin' ? 999 : (u.max_instances || planInfo.max_instances || 1),
+            max_schedules: u.role === 'admin' ? 9999 : (u.max_schedules || planInfo.max_schedules || 2),
+            max_recipients: u.role === 'admin' ? 99999 : (u.max_recipients || planInfo.max_recipients || 50),
             instances: u.instances || []
         };
     });
@@ -864,26 +912,20 @@ app.get('/admin/users', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 app.post('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
-    const { name, email, password, plan, instance_name } = req.body;
-    if (!name || !email || !password || !plan || !instance_name)
-        return res.status(400).json({ error: 'Preencha todos os campos incluindo nome da instância' });
+    const { name, email, password, plan, instance_name, max_instances, max_schedules, max_recipients } = req.body;
+    if (!name || !email || !password || !plan)
+        return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
     if (!PLANS[plan]) return res.status(400).json({ error: 'Plano inválido' });
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-        return res.status(400).json({ error: 'Email inválido' });
-    if (password.length < 8)
-        return res.status(400).json({ error: 'Senha deve ter pelo menos 8 caracteres' });
-    if (!/^[a-zA-Z0-9-_]+$/.test(instance_name))
-        return res.status(400).json({ error: 'Nome de instância inválido (use apenas letras, números e hífens)' });
+    if (password.length < 8) return res.status(400).json({ error: 'Senha deve ter pelo menos 8 caracteres' });
 
     const users = loadUsers();
     if (users.find(u => u.email.toLowerCase() === email.toLowerCase()))
         return res.status(400).json({ error: 'Email já cadastrado' });
-    if (users.find(u => u.instance_name === instance_name))
-        return res.status(400).json({ error: 'Nome de instância já em uso' });
 
+    const inst = instance_name || `${name.toLowerCase().replace(/[^a-z0-9]/g, '')}-wa`;
     if (EVOLUTION_API_URL) {
         await axios.post(`${EVOLUTION_API_URL}/instance/create`, {
-            instanceName: instance_name, qrcode: true, integration: 'WHATSAPP-BAILEYS'
+            instanceName: inst, qrcode: true, integration: 'WHATSAPP-BAILEYS'
         }, { headers: evoHeaders() }).catch(() => {});
     }
 
@@ -892,8 +934,11 @@ app.post('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
         id: Date.now().toString(), name, email,
         password: bcrypt.hashSync(password, 10),
         role: 'user', plan, plan_expires: calcExpiry(plan),
-        instance_name, instances: [{ name: instance_name, label: 'Principal', connected: false }],
-        max_instances: planInfo.max_instances, created_at: new Date().toISOString(), active: true
+        instance_name: inst, instances: [{ name: inst, label: 'Principal', connected: false }],
+        max_instances: parseInt(max_instances) || planInfo.max_instances,
+        max_schedules: parseInt(max_schedules) || planInfo.max_schedules,
+        max_recipients: parseInt(max_recipients) || planInfo.max_recipients,
+        created_at: new Date().toISOString(), active: true
     };
     users.push(user);
     saveUsers(users);
@@ -905,29 +950,67 @@ app.put('/admin/users/:id', authMiddleware, adminMiddleware, (req, res) => {
     const users = loadUsers();
     const idx = users.findIndex(u => u.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: 'Usuário não encontrado' });
-    const { plan, active, name, instance_name, max_instances } = req.body;
+
+    const { plan, active, name, instance_name, max_instances, max_schedules, max_recipients, plan_expires, password } = req.body;
     if (name) users[idx].name = name;
     if (instance_name) users[idx].instance_name = instance_name;
+    if (active !== undefined) users[idx].active = active;
+
+    // Se forneceu nova senha diretamente
+    if (password && password.length >= 8) {
+        users[idx].password = bcrypt.hashSync(password, 10);
+    }
+
+    // Se mudou o plano, aplica os limites padrão do plano
     if (plan !== undefined) {
         if (!PLANS[plan]) return res.status(400).json({ error: 'Plano inválido' });
         users[idx].plan = plan;
         users[idx].plan_expires = calcExpiry(plan);
         users[idx].max_instances = PLANS[plan].max_instances;
+        users[idx].max_schedules = PLANS[plan].max_schedules;
+        users[idx].max_recipients = PLANS[plan].max_recipients;
     }
-    if (active !== undefined) users[idx].active = active;
+
+    // Permite que o ADMIN customize limites específicos livremente para qualquer cliente!
     if (max_instances !== undefined) users[idx].max_instances = parseInt(max_instances) || 1;
+    if (max_schedules !== undefined) users[idx].max_schedules = parseInt(max_schedules) || 2;
+    if (max_recipients !== undefined) users[idx].max_recipients = parseInt(max_recipients) || 50;
+    if (plan_expires !== undefined) users[idx].plan_expires = plan_expires;
+
     saveUsers(users);
-    res.json({ success: true });
+    const { password: _, ...safe } = users[idx];
+    res.json({ success: true, user: safe });
 });
 
 app.delete('/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
     const users = loadUsers();
     const user = users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
-    if (user?.instance_name && user.role !== 'admin' && EVOLUTION_API_URL) {
+    if (user.role === 'admin') return res.status(400).json({ error: 'Não é possível excluir o usuário administrador principal' });
+
+    // Exclui a instância na Evolution API
+    if (user?.instance_name && EVOLUTION_API_URL) {
         await axios.delete(`${EVOLUTION_API_URL}/instance/delete/${user.instance_name}`, { headers: evoHeaders() }).catch(() => {});
     }
+
+    // Remove agendamentos e campanhas deste cliente
+    const db = loadDB();
+    db.schedules = (db.schedules || []).filter(s => s.userId !== req.params.id);
+    db.campaigns = (db.campaigns || []).filter(c => c.userId !== req.params.id);
+    saveDB(db);
+
     saveUsers(users.filter(u => u.id !== req.params.id));
+    res.json({ success: true });
+});
+
+app.post('/admin/users/:id/reset-password', authMiddleware, adminMiddleware, async (req, res) => {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 8) return res.status(400).json({ error: 'Senha mínima de 8 caracteres' });
+    const users = loadUsers();
+    const idx = users.findIndex(u => u.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Usuário não encontrado' });
+    users[idx].password = bcrypt.hashSync(newPassword, 10);
+    saveUsers(users);
     res.json({ success: true });
 });
 
@@ -962,7 +1045,7 @@ app.get('/admin/export-history-csv', authMiddleware, adminMiddleware, (req, res)
     res.send('\uFEFF' + lines.join('\n'));
 });
 
-// ── AUTO REGISTRO (TRIAL LIMITADO) ────────────────────────
+// ── AUTO REGISTRO ─────────────────────────────────────────
 app.post('/auth/register', async (req, res) => {
     const { name, email, password } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: 'Preencha todos os campos' });
@@ -995,6 +1078,8 @@ app.post('/auth/register', async (req, res) => {
         instance_name: instanceName,
         instances: [{ name: instanceName, label: 'Principal', connected: false }],
         max_instances: trialLimits.max_instances,
+        max_schedules: trialLimits.max_schedules,
+        max_recipients: trialLimits.max_recipients,
         created_at: new Date().toISOString(), active: true
     };
     users.push(user);
