@@ -417,23 +417,104 @@ app.get('/api/groups', authMiddleware, async (req, res) => {
         }
     }
 
-    try {
-        const r = await axios.get(`${EVOLUTION_API_URL}/group/fetchAllGroups/${inst}?getParticipants=false`, {
-            headers: evoHeaders(), timeout: 15000
+    let groups = [];
+    const nameMap = new Map();
+    if (diskCached && Array.isArray(diskCached.groups)) {
+        diskCached.groups.forEach(g => {
+            if (g.id && g.subject && g.subject !== g.id) nameMap.set(g.id, g.subject);
         });
-        const groups = Array.isArray(r.data) ? r.data : [];
-        groups.sort((a, b) => (b.lastMessageTimestamp || b.creation || 0) - (a.lastMessageTimestamp || a.creation || 0));
-        setCache(cacheKey, groups, 300000); // 5 min em memória
+    }
+
+    // ESTRATÉGIA 1: Buscar chats via /chat/findChats (MUITO mais rápido - 3s a 5s, não trava)
+    try {
+        const rChats = await axios.post(`${EVOLUTION_API_URL}/chat/findChats/${inst}`, { where: {} }, {
+            headers: evoHeaders(), timeout: 9000
+        });
+        const chats = Array.isArray(rChats.data) ? rChats.data : (rChats.data?.chats || rChats.data?.data || []);
+        const groupChats = chats.filter(c => (c.remoteJid || c.id || '').includes('@g.us'));
+
+        if (groupChats.length > 0) {
+            groups = groupChats.map(c => {
+                const jid = c.remoteJid || c.id;
+                const existing = nameMap.get(jid);
+                const name = c.pushName || c.name || c.subject || existing || null;
+                return {
+                    id: jid,
+                    name: name || jid.replace('@g.us', ''),
+                    subject: name || jid.replace('@g.us', ''),
+                    hasName: !!name,
+                    unreadCount: c.unreadCount || 0,
+                    lastMessageTimestamp: c.lastMessage?.messageTimestamp || (c.updatedAt ? Math.floor(new Date(c.updatedAt).getTime() / 1000) : 0)
+                };
+            });
+        }
+    } catch (errChats) {
+        logger.warn('findChats groups failed, falling back to fetchAllGroups', { err: errChats.message });
+    }
+
+    // ESTRATÉGIA 2: Se findChats não retornou nada, tenta fetchAllGroups com timeout maior
+    if (!groups.length) {
+        try {
+            const r = await axios.get(`${EVOLUTION_API_URL}/group/fetchAllGroups/${inst}?getParticipants=false`, {
+                headers: evoHeaders(), timeout: 25000
+            });
+            const raw = Array.isArray(r.data) ? r.data : [];
+            groups = raw.map(g => ({
+                id: g.id,
+                name: g.subject || g.name || g.id,
+                subject: g.subject || g.name || g.id,
+                hasName: true,
+                creation: g.creation,
+                lastMessageTimestamp: g.lastMessageTimestamp || 0
+            }));
+        } catch (errAll) {
+            logger.warn('fetchAllGroups also failed', { err: errAll.message });
+        }
+    }
+
+    // Se conseguiu grupos (seja por findChats ou fetchAllGroups)
+    if (groups.length > 0) {
+        groups.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
+        setCache(cacheKey, groups, 300000); // 5 min
         db.groupsCache[inst] = { groups, updatedAt: new Date().toISOString() };
         saveDB(db);
-        res.json(groups);
-    } catch (e) {
-        // Se a chamada falhou mas tínhamos cache no disco, retorna ele sem travar o cliente!
-        if (diskCached && Array.isArray(diskCached.groups) && diskCached.groups.length > 0) {
-            return res.json(diskCached.groups);
+
+        // Enriquecimento em background para os grupos sem nome amigável
+        const unnamed = groups.filter(g => !g.hasName).slice(0, 20);
+        if (unnamed.length > 0) {
+            (async () => {
+                let updated = false;
+                for (const un of unnamed) {
+                    try {
+                        const info = await axios.get(`${EVOLUTION_API_URL}/group/findGroupInfos/${inst}?groupJid=${un.id}`, {
+                            headers: evoHeaders(), timeout: 4000
+                        });
+                        const subj = info.data?.subject || info.data?.name;
+                        if (subj) {
+                            un.subject = subj;
+                            un.name = subj;
+                            un.hasName = true;
+                            updated = true;
+                        }
+                    } catch {}
+                }
+                if (updated) {
+                    setCache(cacheKey, groups, 300000);
+                    db.groupsCache[inst] = { groups, updatedAt: new Date().toISOString() };
+                    saveDB(db);
+                }
+            })().catch(() => {});
         }
-        res.status(500).json({ error: 'WhatsApp desconectado ou sincronizando na Evolution API: ' + e.message });
+
+        return res.json(groups);
     }
+
+    // Se falhou ambas as chamadas mas tínhamos cache anterior em disco, retorna o cache
+    if (diskCached && Array.isArray(diskCached.groups) && diskCached.groups.length > 0) {
+        return res.json(diskCached.groups);
+    }
+
+    res.status(500).json({ error: 'WhatsApp desconectado ou sincronizando na Evolution API. Aguarde alguns instantes e tente novamente.' });
 });
 
 app.get('/api/contacts', authMiddleware, async (req, res) => {

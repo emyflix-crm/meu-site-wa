@@ -149,6 +149,41 @@ function animateCountUp(elementId, targetValue) {
     requestAnimationFrame(step);
 }
 
+// ── Onboarding Flow ────────────────────────────────────────
+function checkOnboarding() {
+    if (CURRENT_USER.role === 'admin') return;
+    if (CURRENT_USER.responsible_use_accepted === false) {
+        const modal = document.getElementById('modal-responsible-use');
+        if (modal) {
+            modal.style.display = 'flex';
+            // Hydrate icons inside the modal
+            modal.querySelectorAll('[data-icon]').forEach(el => {
+                const svg = typeof ICONS !== 'undefined' ? ICONS[el.getAttribute('data-icon')] : null;
+                if (svg) {
+                    el.innerHTML = svg;
+                    el.style.display = 'inline-flex';
+                    el.style.alignItems = 'center';
+                    el.style.width = el.style.width || '18px';
+                    el.style.height = el.style.height || '18px';
+                }
+            });
+        }
+    }
+}
+
+async function acceptResponsibleUse() {
+    try {
+        await authFetch(`${API}/api/user/onboarding`, {
+            method: 'PUT',
+            body: JSON.stringify({ step: 'responsible_use' })
+        });
+        CURRENT_USER.responsible_use_accepted = true;
+        localStorage.setItem('wa_user', JSON.stringify(CURRENT_USER));
+    } catch {}
+    const modal = document.getElementById('modal-responsible-use');
+    if (modal) modal.style.display = 'none';
+}
+
 // ── Banner do Plano / Teste / Limites ─────────────────────
 function renderTrialBanner() {
     const textEl = document.getElementById('trial-days-text');
@@ -500,7 +535,7 @@ function renderCampGroups() {
     if (!container) return;
 
     const searchVal = (document.getElementById('camp-group-search')?.value || '').toLowerCase();
-    const filtered = campGroups.filter(g => g.name.toLowerCase().includes(searchVal));
+    const filtered = campGroups.filter(g => (g.name || g.subject || g.id || '').toLowerCase().includes(searchVal));
 
     if (!filtered.length) {
         container.innerHTML = searchVal
@@ -1166,8 +1201,7 @@ async function loadSchedules() {
     try {
         const r = await authFetch(`${API}/api/schedules`);
         schedules = await r.json();
-        const activeEl = document.getElementById('stat-active');
-        if (activeEl) activeEl.textContent = schedules.filter(s => s.active).length;
+        animateCountUp('stat-active', schedules.filter(s => s.active).length);
         renderSchedules();
     } catch { }
 }
@@ -1178,38 +1212,52 @@ function renderSchedules() {
     let filtered = schedules;
     if (dashFilter !== 'all') filtered = schedules.filter(s => s.recipients?.some(r => r.type === dashFilter));
     if (!filtered.length) {
-        list.innerHTML = '<div class="empty">Nenhum agendamento ativo no momento.<br><button class="btn btn-primary" style="margin-top:12px;" onclick="showPage(\'schedule\')">+ Criar Primeiro Agendamento</button></div>';
+        // Use empty state template if available
+        const tmpl = document.getElementById('tmpl-empty-dashboard');
+        if (tmpl) {
+            list.innerHTML = '';
+            const clone = tmpl.content.cloneNode(true);
+            list.appendChild(clone);
+            // Hydrate icons in cloned template
+            list.querySelectorAll('[data-icon]').forEach(el => {
+                const svg = typeof ICONS !== 'undefined' ? ICONS[el.getAttribute('data-icon')] : null;
+                if (svg) { el.innerHTML = svg; el.style.display = 'inline-flex'; el.style.alignItems = 'center'; }
+            });
+        } else {
+            list.innerHTML = '<div class="empty">Nenhum agendamento ativo no momento.<br><button class="btn btn-primary" style="margin-top:12px;" onclick="showPage(\'schedule\')">Criar Primeiro Agendamento</button></div>';
+        }
         return;
     }
-    const freqLabel = { daily: '🔁 Diário', once: '1️⃣ Somente 1×', monthly: '📅 Mensal', date: '📆 Data fixa' };
+    const freqLabel = { daily: 'Di\u00e1rio', once: 'Somente 1\u00d7', monthly: 'Mensal', date: 'Data fixa' };
+    const iconSvg = (name) => typeof ICONS !== 'undefined' && ICONS[name] ? `<span style="display:inline-flex;width:14px;height:14px;vertical-align:middle;">${ICONS[name]}</span>` : '';
     list.innerHTML = filtered.map(s => {
-        const names = s.recipients?.map(r => `${r.type === 'group' ? '👥' : '👤'} ${r.name}`).join(', ') || '';
+        const names = s.recipients?.map(r => `${r.name}`).join(', ') || '';
         return `<div class="schedule-item">
             <div class="schedule-time">${s.time}</div>
             <div class="schedule-info">
-                <div class="schedule-group">${s.recipients?.length || 1} destinatário(s): <span style="color:var(--text2);font-weight:400">${escHtml(names.substring(0, 70))}${names.length > 70 ? '...' : ''}</span></div>
+                <div class="schedule-group">${s.recipients?.length || 1} destinat\u00e1rio(s): <span style="color:var(--text2);font-weight:400">${escHtml(names.substring(0, 70))}${names.length > 70 ? '...' : ''}</span></div>
                 <div class="schedule-message">${escHtml((s.message || '').substring(0, 80))}${(s.message || '').length > 80 ? '...' : ''}</div>
                 <div class="schedule-meta">
-                    ${s.active ? '<span class="badge badge-green">✓ Ativo</span>' : '<span class="badge badge-yellow">⏸ Pausado</span>'}
-                    <span class="badge badge-blue">${freqLabel[s.frequency] || '🔁 Diário'}</span>
-                    ${s.media_url ? `<span class="badge badge-purple">📎 Mídia</span>` : ''}
-                    <span class="badge" style="color:var(--text3)">📱 ${escHtml(s.instance_name || '')}</span>
+                    ${s.active ? `<span class="badge badge-success">${iconSvg('check-circle')} Ativo</span>` : `<span class="badge badge-warning">${iconSvg('pause-circle')} Pausado</span>`}
+                    <span class="badge badge-info">${iconSvg('refresh-cw')} ${freqLabel[s.frequency] || 'Di\u00e1rio'}</span>
+                    ${s.media_url ? `<span class="badge badge-purple">${iconSvg('image')} M\u00eddia</span>` : ''}
+                    <span class="badge badge-neutral">${iconSvg('smartphone')} ${escHtml(s.instance_name || '')}</span>
                 </div>
             </div>
             <div class="schedule-actions">
-                <button class="btn btn-icon" title="Enviar agora" onclick="sendNow(${s.id})">⚡</button>
-                <button class="btn btn-icon" title="${s.active ? 'Pausar' : 'Ativar'}" onclick="toggleSchedule(${s.id},${s.active})">${s.active ? '⏸' : '▶️'}</button>
-                <button class="btn btn-icon" title="Deletar" onclick="deleteSchedule(${s.id})">🗑️</button>
+                <button class="btn btn-icon" data-tooltip="Enviar agora" onclick="sendNow(${s.id})" aria-label="Enviar agora">${iconSvg('zap')}</button>
+                <button class="btn btn-icon" data-tooltip="${s.active ? 'Pausar' : 'Ativar'}" onclick="toggleSchedule(${s.id},${s.active})" aria-label="${s.active ? 'Pausar' : 'Ativar'}">${s.active ? iconSvg('pause-circle') : iconSvg('play-circle')}</button>
+                <button class="btn btn-icon" data-tooltip="Excluir" onclick="deleteSchedule(${s.id})" aria-label="Excluir">${iconSvg('trash')}</button>
             </div>
         </div>`;
     }).join('');
 }
 
 async function sendNow(id) {
-    showToast('⚡ Disparando mensagem...', 'success');
+    showToast('Disparando mensagem...', 'success');
     try {
         const data = await (await authFetch(`${API}/api/send-now/${id}`, { method: 'POST' })).json();
-        showToast(data.message || '✅ Enviando!', 'success');
+        showToast(data.message || 'Enviando!', 'success');
         setTimeout(() => loadHistory(), 3000);
     } catch { showToast('Erro no envio', 'error'); }
 }
@@ -1222,14 +1270,14 @@ async function toggleSchedule(id, active) {
         showToast(data.error, 'warning');
         return;
     }
-    showToast(active ? '⏸ Agendamento Pausado' : '▶️ Agendamento Ativado', 'success');
+    showToast(active ? 'Agendamento pausado' : 'Agendamento ativado', 'success');
     loadSchedules();
 }
 
 async function deleteSchedule(id) {
     if (!confirm('Excluir este agendamento?')) return;
     await authFetch(`${API}/api/schedules/${id}`, { method: 'DELETE' });
-    showToast('🗑️ Removido', 'success');
+    showToast('Agendamento removido', 'success');
     loadSchedules();
 }
 
@@ -1238,11 +1286,8 @@ async function loadHistory() {
     try {
         const r = await authFetch(`${API}/api/history`);
         const history = await r.json();
-        const statEl = document.getElementById('stat-sent');
-        if (statEl) {
-            const today = new Date().toDateString();
-            statEl.textContent = history.filter(h => h.status === 'sent' && new Date(h.sent_at).toDateString() === today).length;
-        }
+        const today = new Date().toDateString();
+        animateCountUp('stat-sent', history.filter(h => h.status === 'sent' && new Date(h.sent_at).toDateString() === today).length);
         const list = document.getElementById('history-list');
         if (!list) return;
         if (!history.length) {
@@ -1251,9 +1296,9 @@ async function loadHistory() {
         }
         list.innerHTML = history.map(h => `
             <div class="history-item">
-                <div class="history-status ${h.status}">${h.status === 'sent' ? '✅' : '❌'}</div>
+                <div class="history-status ${h.status}">${h.status === 'sent' ? (typeof ICONS !== 'undefined' ? '<span style="display:inline-flex;width:16px;height:16px;color:var(--primary);">' + ICONS['check-circle'] + '</span>' : '\u2713') : (typeof ICONS !== 'undefined' ? '<span style="display:inline-flex;width:16px;height:16px;color:var(--danger);">' + ICONS['x-circle'] + '</span>' : '\u2717')}</div>
                 <div class="history-info">
-                    <div class="history-group">${h.recipient_type === 'group' ? '👥' : '👤'} ${escHtml(h.recipient_name || '—')}</div>
+                    <div class="history-group">${escHtml(h.recipient_name || '\u2014')}</div>
                     <div class="history-message">${escHtml((h.message || '').substring(0, 90))}</div>
                 </div>
                 <div class="history-time">${formatDate(h.sent_at)}</div>
@@ -1281,7 +1326,7 @@ async function loadInstancesList() {
         ));
 
         el.innerHTML = `<p style="font-size:12px;color:var(--text3);margin-bottom:14px;">
-            📱 ${userInstances.length} de ${maxInst} WhatsApp(s) permitidos pelo seu plano
+            ${userInstances.length} de ${maxInst} WhatsApp(s) permitidos pelo seu plano
         </p>` + userInstances.map(inst => {
             const st = statuses.find(s => s.name === inst.name);
             const connected = st?.connected;
@@ -1290,12 +1335,12 @@ async function loadInstancesList() {
                     <div style="width:12px;height:12px;border-radius:50%;background:${connected ? '#22c55e' : '#ef4444'};"></div>
                     <div>
                         <div style="font-weight:600;font-size:14px;">${escHtml(inst.label || inst.name)}</div>
-                        <div style="font-size:11px;color:var(--text3);">${connected ? '🟢 Conectado' : '🔴 Desconectado'}</div>
+                        <div style="font-size:11px;color:var(--text3);">${connected ? 'Conectado' : 'Desconectado'}</div>
                     </div>
                 </div>
                 <div style="display:flex;gap:8px;">
-                    ${!connected ? `<button class="btn btn-primary" style="font-size:12px;" onclick="openQRModal('${inst.name}','${(inst.label||inst.name).replace(/'/g,"\\'")}')">📱 Conectar</button>` : ''}
-                    ${connected ? `<button class="btn btn-secondary" style="font-size:12px;" onclick="disconnectInstance('${inst.name}')">🔌 Desconectar</button>` : ''}
+                    ${!connected ? `<button class="btn btn-primary" style="font-size:12px;" onclick="openQRModal('${inst.name}','${(inst.label||inst.name).replace(/'/g,"\\'")}')">Conectar</button>` : ''}
+                    ${connected ? `<button class="btn btn-secondary" style="font-size:12px;" onclick="disconnectInstance('${inst.name}')">Desconectar</button>` : ''}
                 </div>
             </div>`;
         }).join('');
@@ -1306,7 +1351,7 @@ function openQRModal(instName, label) {
     currentQRInstance = instName;
     const modal = document.getElementById('qr-modal');
     if (modal) modal.style.display = 'flex';
-    document.getElementById('qr-modal-title').textContent = '📱 ' + (label || instName);
+    document.getElementById('qr-modal-title').textContent = label || instName;
     document.getElementById('qr-modal-inst').textContent = 'Instância: ' + instName;
     document.getElementById('qr-modal-connected').style.display = 'none';
     document.getElementById('qr-modal-area').style.display = 'block';
