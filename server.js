@@ -248,8 +248,8 @@ app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 app.use('/uploads', express.static(UPLOADS_DIR));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'landing.html')));
 app.use(express.static(path.join(__dirname, 'public')));
-
 app.use(morgan('combined', { stream: { write: msg => logger.http(msg.trim()) } }));
 
 app.get('/app.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
