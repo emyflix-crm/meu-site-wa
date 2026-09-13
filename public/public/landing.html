@@ -1,0 +1,1632 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmyFlix WA — Automação e Agendador WhatsApp</title>
+    <meta name="description" content="Agende mensagens, crie campanhas e gerencie múltiplos WhatsApps em um só lugar. Teste grátis por 7 dias.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        /* ================================================================
+           RESET & BASE — Auros-inspired deep dark theme
+           ================================================================ */
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            /* Surface stack (depth-of-water) */
+            --abyss: #0b1120;
+            --deep: #080d1a;
+            --kelp: #131c2e;
+            --surface: #1a2540;
+
+            /* Brand */
+            --primary: #25d366;
+            --primary-dark: #1ea952;
+            --cyan: #0ea5e9;
+            --teal: #128c7e;
+
+            /* Glows */
+            --glow: rgba(37, 211, 102, 0.12);
+            --glow-strong: rgba(37, 211, 102, 0.25);
+            --glow-cyan: rgba(14, 165, 233, 0.12);
+
+            /* Text — Auros rationed color */
+            --white: #ffffff;
+            --mist: #e2e8f0;
+            --silver: #94a3b8;
+            --slate: #475569;
+            --deep-slate: #334155;
+
+            /* Accent */
+            --phosphor: #86efac;
+
+            /* Border */
+            --border: rgba(37, 211, 102, 0.08);
+            --border-hover: rgba(37, 211, 102, 0.2);
+
+            /* Gradients */
+            --gradient-brand: linear-gradient(135deg, #25d366 0%, #0ea5e9 100%);
+            --gradient-aurora: linear-gradient(90deg, #25d366 0%, #86efac 30%, #e2e8f0 55%, #0ea5e9 100%);
+            --gradient-surface: linear-gradient(180deg, var(--abyss) 0%, var(--deep) 100%);
+
+            /* Spacing (Auros base: 4px) */
+            --section-gap: 120px;
+            --card-padding: 36px;
+            --content-max: 1200px;
+
+            /* Radius (Auros: cards 16px, small 6px) */
+            --radius-card: 16px;
+            --radius-sm: 6px;
+            --radius-pill: 50px;
+        }
+
+        html {
+            scroll-behavior: smooth;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--abyss);
+            color: var(--silver);
+            font-size: 16px;
+            line-height: 1.5;
+            overflow-x: hidden;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--deep); }
+        ::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 10px; }
+
+        /* ================================================================
+           TYPOGRAPHY — Auros-inspired scale
+           ================================================================ */
+        .eyebrow {
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--primary);
+        }
+
+        .headline-xl {
+            font-size: clamp(2.5rem, 6vw, 4.5rem);
+            font-weight: 800;
+            line-height: 1.0;
+            letter-spacing: -0.03em;
+            color: var(--white);
+        }
+
+        .headline-lg {
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 700;
+            line-height: 1.05;
+            letter-spacing: -0.02em;
+            color: var(--white);
+        }
+
+        .headline-md {
+            font-size: clamp(1.25rem, 2.5vw, 1.5rem);
+            font-weight: 600;
+            line-height: 1.2;
+            color: var(--white);
+        }
+
+        .body-lg {
+            font-size: 18px;
+            line-height: 1.6;
+            color: var(--silver);
+        }
+
+        .body-md {
+            font-size: 16px;
+            line-height: 1.5;
+            color: var(--silver);
+        }
+
+        .stat-number {
+            font-size: clamp(2.5rem, 5vw, 3.5rem);
+            font-weight: 800;
+            line-height: 1;
+            color: var(--phosphor);
+        }
+
+        /* ================================================================
+           LAYOUT
+           ================================================================ */
+        .container {
+            max-width: var(--content-max);
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        section {
+            padding: var(--section-gap) 0;
+            position: relative;
+        }
+
+        .text-center { text-align: center; }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 48px;
+            align-items: center;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+
+        .grid-4 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+        }
+
+        /* ================================================================
+           SCROLL REVEAL ANIMATIONS
+           ================================================================ */
+        .reveal {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .reveal.revealed {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .reveal-left {
+            opacity: 0;
+            transform: translateX(-60px);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .reveal-left.revealed {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .reveal-right {
+            opacity: 0;
+            transform: translateX(60px);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .reveal-right.revealed {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .reveal-scale {
+            opacity: 0;
+            transform: scale(0.85);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .reveal-scale.revealed {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* Staggered children */
+        .stagger > * { transition-delay: calc(var(--i, 0) * 120ms); }
+
+        /* ================================================================
+           NAV BAR — Transparent fixed with blur
+           ================================================================ */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            padding: 20px 0;
+            transition: all 0.4s ease;
+        }
+
+        .navbar.scrolled {
+            background: rgba(11, 17, 32, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 0;
+        }
+
+        .navbar .container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-logo {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--white);
+            text-decoration: none;
+            letter-spacing: -0.02em;
+        }
+
+        .nav-logo span { color: var(--primary); }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 32px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--silver);
+            text-decoration: none;
+            transition: color 0.2s;
+            letter-spacing: 0.01em;
+        }
+
+        .nav-links a:hover { color: var(--white); }
+
+        .btn-gradient {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 28px;
+            background: var(--gradient-brand);
+            color: #0b1120;
+            font-size: 14px;
+            font-weight: 700;
+            border-radius: var(--radius-pill);
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            letter-spacing: 0.01em;
+        }
+
+        .btn-gradient:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(37, 211, 102, 0.3);
+        }
+
+        .btn-outline {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 28px;
+            background: transparent;
+            color: var(--white);
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: var(--radius-pill);
+            text-decoration: none;
+            border: 1px solid rgba(255,255,255,0.15);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-outline:hover {
+            border-color: var(--primary);
+            background: var(--glow);
+            color: var(--primary);
+        }
+
+        .nav-mobile-btn {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--white);
+            font-size: 28px;
+            cursor: pointer;
+        }
+
+        /* ================================================================
+           HERO SECTION
+           ================================================================ */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            padding: 120px 0 80px;
+        }
+
+        .hero-content {
+            text-align: center;
+            position: relative;
+            z-index: 2;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .hero .eyebrow {
+            margin-bottom: 24px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .hero .headline-xl {
+            margin-bottom: 24px;
+        }
+
+        .hero .headline-xl .gradient-text {
+            background: var(--gradient-brand);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero .body-lg {
+            margin-bottom: 40px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .hero-tag {
+            margin-top: 24px;
+            font-size: 13px;
+            color: var(--slate);
+        }
+
+        /* Floating Particles */
+        .particles {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            overflow: hidden;
+        }
+
+        .particle {
+            position: absolute;
+            border-radius: 50%;
+            opacity: 0;
+            animation: float-particle linear infinite;
+        }
+
+        @keyframes float-particle {
+            0% { opacity: 0; transform: translateY(100vh) scale(0); }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { opacity: 0; transform: translateY(-20vh) scale(1); }
+        }
+
+        .particle:nth-child(1)  { left: 5%;  width: 6px;  height: 6px;  background: var(--primary); filter: blur(1px); animation-duration: 12s; animation-delay: 0s; }
+        .particle:nth-child(2)  { left: 15%; width: 4px;  height: 4px;  background: var(--cyan);    filter: blur(0px); animation-duration: 15s; animation-delay: 2s; }
+        .particle:nth-child(3)  { left: 25%; width: 8px;  height: 8px;  background: var(--primary); filter: blur(2px); animation-duration: 18s; animation-delay: 4s; }
+        .particle:nth-child(4)  { left: 35%; width: 3px;  height: 3px;  background: var(--white);   filter: blur(0px); animation-duration: 10s; animation-delay: 1s; }
+        .particle:nth-child(5)  { left: 45%; width: 5px;  height: 5px;  background: var(--cyan);    filter: blur(1px); animation-duration: 14s; animation-delay: 3s; }
+        .particle:nth-child(6)  { left: 55%; width: 7px;  height: 7px;  background: var(--primary); filter: blur(2px); animation-duration: 16s; animation-delay: 5s; }
+        .particle:nth-child(7)  { left: 65%; width: 4px;  height: 4px;  background: var(--white);   filter: blur(0px); animation-duration: 11s; animation-delay: 0s; }
+        .particle:nth-child(8)  { left: 75%; width: 6px;  height: 6px;  background: var(--primary); filter: blur(1px); animation-duration: 13s; animation-delay: 6s; }
+        .particle:nth-child(9)  { left: 85%; width: 3px;  height: 3px;  background: var(--cyan);    filter: blur(0px); animation-duration: 17s; animation-delay: 2s; }
+        .particle:nth-child(10) { left: 95%; width: 5px;  height: 5px;  background: var(--primary); filter: blur(1px); animation-duration: 19s; animation-delay: 7s; }
+        .particle:nth-child(11) { left: 10%; width: 10px; height: 10px; background: var(--primary); filter: blur(4px); animation-duration: 20s; animation-delay: 8s; }
+        .particle:nth-child(12) { left: 30%; width: 12px; height: 12px; background: var(--cyan);    filter: blur(5px); animation-duration: 22s; animation-delay: 3s; }
+        .particle:nth-child(13) { left: 50%; width: 8px;  height: 8px;  background: var(--primary); filter: blur(3px); animation-duration: 16s; animation-delay: 1s; }
+        .particle:nth-child(14) { left: 70%; width: 14px; height: 14px; background: var(--primary); filter: blur(6px); animation-duration: 24s; animation-delay: 5s; }
+        .particle:nth-child(15) { left: 90%; width: 6px;  height: 6px;  background: var(--cyan);    filter: blur(2px); animation-duration: 14s; animation-delay: 9s; }
+
+        /* Hero glow orbs */
+        .hero-glow-1 {
+            position: absolute;
+            top: 20%;
+            left: -10%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(37, 211, 102, 0.08) 0%, transparent 70%);
+            border-radius: 50%;
+            z-index: 0;
+        }
+
+        .hero-glow-2 {
+            position: absolute;
+            bottom: 10%;
+            right: -10%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(14, 165, 233, 0.06) 0%, transparent 70%);
+            border-radius: 50%;
+            z-index: 0;
+        }
+
+        /* Scroll indicator */
+        .scroll-indicator {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            color: var(--slate);
+            font-size: 12px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            animation: bounce-scroll 2s infinite;
+        }
+
+        .scroll-indicator .line {
+            width: 1px;
+            height: 40px;
+            background: linear-gradient(to bottom, var(--primary), transparent);
+        }
+
+        @keyframes bounce-scroll {
+            0%, 100% { transform: translateX(-50%) translateY(0); }
+            50% { transform: translateX(-50%) translateY(8px); }
+        }
+
+        /* ================================================================
+           STATS SECTION
+           ================================================================ */
+        .stats-section {
+            background: var(--deep);
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            padding: 80px 0;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .stat-item .stat-number {
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .stat-item .stat-label {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--silver);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        /* ================================================================
+           FEATURES GRID
+           ================================================================ */
+        .features-section {
+            padding: var(--section-gap) 0;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 64px;
+        }
+
+        .section-header .eyebrow {
+            margin-bottom: 16px;
+            display: block;
+        }
+
+        .section-header .headline-lg {
+            margin-bottom: 16px;
+        }
+
+        .section-header .body-lg {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .feature-card {
+            background: var(--kelp);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-card);
+            padding: var(--card-padding);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--gradient-brand);
+            opacity: 0;
+            transition: opacity 0.4s;
+        }
+
+        .feature-card:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-4px);
+        }
+
+        .feature-card:hover::before {
+            opacity: 1;
+        }
+
+        .feature-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
+            background: var(--glow);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+
+        .feature-card .headline-md {
+            margin-bottom: 12px;
+        }
+
+        .feature-card .body-md {
+            color: var(--silver);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* ================================================================
+           PHONE MOCKUP SECTION
+           ================================================================ */
+        .mockup-section {
+            padding: var(--section-gap) 0;
+            overflow: hidden;
+        }
+
+        .mockup-visual {
+            position: relative;
+            display: flex;
+            justify-content: center;
+        }
+
+        .phone-frame {
+            background: #000;
+            border: 8px solid #1e293b;
+            border-radius: 36px;
+            width: 280px;
+            overflow: hidden;
+            box-shadow: 0 40px 80px rgba(0,0,0,0.5);
+        }
+
+        .phone-top {
+            background: #075e54;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+        }
+
+        .phone-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #128c7e;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .phone-name {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .phone-sub {
+            font-size: 11px;
+            opacity: 0.7;
+        }
+
+        .phone-body {
+            background: #efeae2;
+            padding: 16px;
+            min-height: 380px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .wa-bubble {
+            background: #d9fdd3;
+            color: #111b21;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border-top-right-radius: 0;
+            max-width: 85%;
+            align-self: flex-end;
+            font-size: 13px;
+            box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+        }
+
+        .wa-bubble-img {
+            width: 100%;
+            height: 120px;
+            background: linear-gradient(135deg, #128c7e 0%, #25d366 100%);
+            border-radius: 6px;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+        }
+
+        .wa-meta {
+            display: flex;
+            justify-content: flex-end;
+            gap: 4px;
+            font-size: 11px;
+            color: #667781;
+            margin-top: 2px;
+        }
+
+        .wa-check { color: #53bdeb; }
+
+        .mockup-content {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .mockup-content .eyebrow { margin-bottom: 16px; }
+        .mockup-content .headline-lg { margin-bottom: 16px; }
+        .mockup-content .body-lg { margin-bottom: 32px; }
+
+        .feature-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .feature-list li {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 15px;
+            color: var(--mist);
+        }
+
+        .feature-list .check {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--glow);
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        /* ================================================================
+           HOW IT WORKS — Timeline
+           ================================================================ */
+        .steps-section {
+            padding: var(--section-gap) 0;
+            background: var(--deep);
+        }
+
+        .timeline {
+            max-width: 700px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 28px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(to bottom, var(--primary), var(--cyan), transparent);
+        }
+
+        .step {
+            display: flex;
+            gap: 32px;
+            padding-bottom: 48px;
+            position: relative;
+        }
+
+        .step:last-child { padding-bottom: 0; }
+
+        .step-number {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--kelp);
+            border: 2px solid var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--primary);
+            flex-shrink: 0;
+            position: relative;
+            z-index: 2;
+        }
+
+        .step-content {
+            padding-top: 12px;
+        }
+
+        .step-content .headline-md {
+            margin-bottom: 8px;
+        }
+
+        .step-content .body-md {
+            font-size: 15px;
+        }
+
+        /* ================================================================
+           PRICING
+           ================================================================ */
+        .pricing-section {
+            padding: var(--section-gap) 0;
+        }
+
+        .price-card {
+            background: var(--kelp);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-card);
+            padding: 40px 32px;
+            text-align: center;
+            position: relative;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .price-card:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-6px);
+        }
+
+        .price-card.popular {
+            border-color: var(--primary);
+            background: var(--surface);
+            box-shadow: 0 0 60px rgba(37, 211, 102, 0.08);
+        }
+
+        .popular-tag {
+            position: absolute;
+            top: -14px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--gradient-brand);
+            color: #0b1120;
+            font-size: 11px;
+            font-weight: 800;
+            padding: 6px 20px;
+            border-radius: var(--radius-pill);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .price-plan-name {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--white);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .price-amount {
+            font-size: 48px;
+            font-weight: 800;
+            color: var(--phosphor);
+            line-height: 1;
+            margin-bottom: 4px;
+        }
+
+        .price-amount .currency { font-size: 24px; }
+        .price-amount .cents { font-size: 20px; color: var(--silver); }
+
+        .price-period {
+            font-size: 14px;
+            color: var(--slate);
+            margin-bottom: 32px;
+        }
+
+        .price-features {
+            list-style: none;
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            margin-bottom: 32px;
+            flex: 1;
+            border-top: 1px solid var(--border);
+            padding-top: 24px;
+        }
+
+        .price-features li {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: var(--mist);
+        }
+
+        .price-features .icon {
+            color: var(--primary);
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .price-card .btn-gradient,
+        .price-card .btn-outline {
+            width: 100%;
+            justify-content: center;
+        }
+
+        /* ================================================================
+           ADMIN SECTION
+           ================================================================ */
+        .admin-section {
+            padding: var(--section-gap) 0;
+            background: var(--deep);
+        }
+
+        .admin-feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 48px;
+        }
+
+        .admin-card {
+            background: var(--kelp);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-card);
+            padding: 28px;
+            transition: all 0.3s;
+        }
+
+        .admin-card:hover {
+            border-color: var(--border-hover);
+        }
+
+        .admin-card-icon {
+            font-size: 28px;
+            margin-bottom: 16px;
+        }
+
+        .admin-card .headline-md {
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
+        .admin-card .body-md {
+            font-size: 14px;
+        }
+
+        /* ================================================================
+           CTA SECTION — Recessed well (Auros style)
+           ================================================================ */
+        .cta-section {
+            padding: 140px 0;
+            background: var(--deep);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-section::before {
+            content: '';
+            position: absolute;
+            top: -200px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 800px;
+            height: 800px;
+            background: radial-gradient(circle, rgba(37, 211, 102, 0.06) 0%, transparent 60%);
+            border-radius: 50%;
+        }
+
+        .cta-section .headline-xl {
+            margin-bottom: 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .cta-section .body-lg {
+            margin-bottom: 40px;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .cta-section .hero-buttons {
+            position: relative;
+            z-index: 1;
+        }
+
+        .cta-tag {
+            margin-top: 20px;
+            font-size: 13px;
+            color: var(--slate);
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ================================================================
+           FOOTER
+           ================================================================ */
+        .footer {
+            padding: 60px 0 30px;
+            background: var(--deep);
+            border-top: 1px solid var(--border);
+        }
+
+        .footer-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr;
+            gap: 40px;
+            margin-bottom: 48px;
+        }
+
+        .footer-brand .nav-logo {
+            font-size: 22px;
+            display: block;
+            margin-bottom: 16px;
+        }
+
+        .footer-brand p {
+            font-size: 14px;
+            color: var(--slate);
+            max-width: 280px;
+            line-height: 1.6;
+        }
+
+        .footer-col h4 {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--white);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 20px;
+        }
+
+        .footer-col a {
+            display: block;
+            font-size: 14px;
+            color: var(--silver);
+            text-decoration: none;
+            margin-bottom: 12px;
+            transition: color 0.2s;
+        }
+
+        .footer-col a:hover { color: var(--primary); }
+
+        .footer-bottom {
+            border-top: 1px solid var(--border);
+            padding-top: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            color: var(--slate);
+        }
+
+        /* ================================================================
+           RESPONSIVE
+           ================================================================ */
+        @media (max-width: 1024px) {
+            .grid-4 { grid-template-columns: repeat(2, 1fr); }
+            .footer-grid { grid-template-columns: 1fr 1fr; }
+        }
+
+        @media (max-width: 768px) {
+            :root { --section-gap: 80px; }
+
+            .nav-links { display: none; }
+            .nav-mobile-btn { display: block; }
+
+            .grid-2 { grid-template-columns: 1fr; }
+            .grid-3 { grid-template-columns: 1fr; }
+            .grid-4 { grid-template-columns: 1fr; }
+
+            .hero { padding: 100px 0 60px; min-height: auto; }
+
+            .headline-xl { font-size: 2.2rem; }
+
+            .mockup-visual { order: -1; }
+
+            .phone-frame { width: 240px; }
+
+            .timeline::before { left: 20px; }
+
+            .step-number {
+                width: 40px;
+                height: 40px;
+                font-size: 16px;
+            }
+
+            .step { gap: 20px; }
+
+            .footer-grid { grid-template-columns: 1fr; gap: 32px; }
+
+            .footer-bottom {
+                flex-direction: column;
+                gap: 12px;
+                text-align: center;
+            }
+
+            .stats-section .grid-4 { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 480px) {
+            .hero-buttons { flex-direction: column; align-items: center; }
+            .btn-gradient, .btn-outline { width: 100%; justify-content: center; }
+        }
+
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            .reveal, .reveal-left, .reveal-right, .reveal-scale {
+                opacity: 1;
+                transform: none;
+                transition: none;
+            }
+            .particle { animation: none; opacity: 0.3; }
+            .scroll-indicator { animation: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ═══════════════ NAVBAR ═══════════════ -->
+    <nav class="navbar" id="navbar">
+        <div class="container">
+            <a href="#" class="nav-logo">EMYFLIX <span>WA</span></a>
+            <ul class="nav-links">
+                <li><a href="#recursos">Recursos</a></li>
+                <li><a href="#como-funciona">Como Funciona</a></li>
+                <li><a href="#planos">Planos</a></li>
+                <li><a href="https://wa.me/447404200049?text=Olá! Preciso de ajuda com o EmyFlix WA" target="_blank">Contato</a></li>
+            </ul>
+            <a href="/login.html" class="btn-gradient">Começar Grátis →</a>
+            <button class="nav-mobile-btn" onclick="toggleMobileNav()" aria-label="Menu">☰</button>
+        </div>
+    </nav>
+
+    <!-- ═══════════════ HERO ═══════════════ -->
+    <section class="hero">
+        <div class="particles">
+            <div class="particle"></div><div class="particle"></div><div class="particle"></div>
+            <div class="particle"></div><div class="particle"></div><div class="particle"></div>
+            <div class="particle"></div><div class="particle"></div><div class="particle"></div>
+            <div class="particle"></div><div class="particle"></div><div class="particle"></div>
+            <div class="particle"></div><div class="particle"></div><div class="particle"></div>
+        </div>
+        <div class="hero-glow-1"></div>
+        <div class="hero-glow-2"></div>
+
+        <div class="container">
+            <div class="hero-content">
+                <div class="eyebrow">⚡ AUTOMAÇÃO WHATSAPP PROFISSIONAL</div>
+                <h1 class="headline-xl">
+                    Automatize seus envios<br>no <span class="gradient-text">WhatsApp</span>
+                </h1>
+                <p class="body-lg">
+                    Agende mensagens, crie campanhas inteligentes e gerencie múltiplos números em uma única plataforma poderosa.
+                </p>
+                <div class="hero-buttons">
+                    <a href="/login.html" class="btn-gradient">Começar Grátis por 7 Dias →</a>
+                    <a href="#recursos" class="btn-outline">Ver Recursos ↓</a>
+                </div>
+                <p class="hero-tag">Sem cartão de crédito necessário • Configuração em 2 minutos</p>
+            </div>
+        </div>
+
+        <div class="scroll-indicator">
+            <span>SCROLL</span>
+            <div class="line"></div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ STATS ═══════════════ -->
+    <section class="stats-section">
+        <div class="container">
+            <div class="grid-4 stagger">
+                <div class="stat-item reveal-scale" style="--i:0">
+                    <span class="stat-number" data-count="10000">0</span>
+                    <span class="stat-label">Mensagens Enviadas</span>
+                </div>
+                <div class="stat-item reveal-scale" style="--i:1">
+                    <span class="stat-number" data-count="500">0</span>
+                    <span class="stat-label">Grupos Gerenciados</span>
+                </div>
+                <div class="stat-item reveal-scale" style="--i:2">
+                    <span class="stat-number" data-count="99">0</span>
+                    <span class="stat-label">% Uptime Garantido</span>
+                </div>
+                <div class="stat-item reveal-scale" style="--i:3">
+                    <span class="stat-number" data-count="4">0</span>
+                    <span class="stat-label">Planos Flexíveis</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ FEATURES ═══════════════ -->
+    <section class="features-section" id="recursos">
+        <div class="container">
+            <div class="section-header reveal">
+                <span class="eyebrow">RECURSOS</span>
+                <h2 class="headline-lg">Tudo que você precisa para<br>escalar seus envios</h2>
+                <p class="body-lg">Ferramentas profissionais para automatizar seu WhatsApp com segurança e inteligência.</p>
+            </div>
+
+            <div class="grid-3 stagger">
+                <div class="feature-card reveal" style="--i:0">
+                    <div class="feature-icon">📅</div>
+                    <h3 class="headline-md">Agendamento Inteligente</h3>
+                    <p class="body-md">Agende mensagens para horários específicos. Diário, semanal, mensal ou data fixa — o sistema dispara automaticamente.</p>
+                </div>
+
+                <div class="feature-card reveal" style="--i:1">
+                    <div class="feature-icon">📢</div>
+                    <h3 class="headline-md">Campanhas & Listas</h3>
+                    <p class="body-md">Agrupe seus grupos favoritos em campanhas reutilizáveis. Selecione centenas de destinatários em um clique.</p>
+                </div>
+
+                <div class="feature-card reveal" style="--i:2">
+                    <div class="feature-icon">📱</div>
+                    <h3 class="headline-md">Multi-WhatsApp</h3>
+                    <p class="body-md">Conecte múltiplos números do WhatsApp na mesma conta. Gerencie vendas, suporte e pessoal separadamente.</p>
+                </div>
+
+                <div class="feature-card reveal" style="--i:3">
+                    <div class="feature-icon">🖼️</div>
+                    <h3 class="headline-md">Envio de Mídia</h3>
+                    <p class="body-md">Envie fotos, vídeos e GIFs com legendas personalizadas para cada mídia. Preview ao vivo no formato WhatsApp.</p>
+                </div>
+
+                <div class="feature-card reveal" style="--i:4">
+                    <div class="feature-icon">🛡️</div>
+                    <h3 class="headline-md">Anti-Ban Inteligente</h3>
+                    <p class="body-md">Intervalos configuráveis entre envios protegem sua conta. Delays de 30s a 10min para simular comportamento humano.</p>
+                </div>
+
+                <div class="feature-card reveal" style="--i:5">
+                    <div class="feature-icon">📊</div>
+                    <h3 class="headline-md">Histórico Completo</h3>
+                    <p class="body-md">Acompanhe cada envio em tempo real. Veja quais mensagens foram entregues e identifique erros rapidamente.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ PHONE MOCKUP ═══════════════ -->
+    <section class="mockup-section">
+        <div class="container">
+            <div class="grid-2">
+                <div class="mockup-content reveal-left">
+                    <span class="eyebrow">PREVIEW AO VIVO</span>
+                    <h2 class="headline-lg">Veja como sua mensagem vai chegar — antes de enviar</h2>
+                    <p class="body-lg">
+                        Nosso editor mostra a pré-visualização exata do WhatsApp em tempo real. Nada de surpresas.
+                    </p>
+                    <ul class="feature-list">
+                        <li><span class="check">✓</span> Preview idêntico ao WhatsApp real</li>
+                        <li><span class="check">✓</span> Suporte a negrito, itálico e emojis</li>
+                        <li><span class="check">✓</span> Legendas individuais por foto/vídeo</li>
+                        <li><span class="check">✓</span> Resumo com tempo estimado de envio</li>
+                    </ul>
+                </div>
+
+                <div class="mockup-visual reveal-right">
+                    <div class="phone-frame">
+                        <div class="phone-top">
+                            <div class="phone-avatar">WA</div>
+                            <div>
+                                <div class="phone-name">Grupo Vendas VIP</div>
+                                <div class="phone-sub">128 participantes</div>
+                            </div>
+                        </div>
+                        <div class="phone-body">
+                            <div class="wa-bubble">
+                                <div class="wa-bubble-img">🖼️</div>
+                                <div style="white-space:pre-wrap"><b>🔥 PROMOÇÃO RELÂMPAGO!</b>
+
+Só até meia-noite!
+50% OFF em todos os produtos.
+
+Acesse: <i>link.do/promo</i></div>
+                                <div class="wa-meta">
+                                    <span>14:30</span>
+                                    <span class="wa-check">✓✓</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ HOW IT WORKS ═══════════════ -->
+    <section class="steps-section" id="como-funciona">
+        <div class="container">
+            <div class="section-header reveal">
+                <span class="eyebrow">COMO FUNCIONA</span>
+                <h2 class="headline-lg">4 passos para automatizar</h2>
+                <p class="body-lg">Do zero ao primeiro disparo automático em menos de 5 minutos.</p>
+            </div>
+
+            <div class="timeline">
+                <div class="step reveal" style="--i:0">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3 class="headline-md">Conecte seu WhatsApp</h3>
+                        <p class="body-md">Escaneie o QR Code e conecte seu número em segundos. Funciona com qualquer WhatsApp — pessoal ou business.</p>
+                    </div>
+                </div>
+
+                <div class="step reveal" style="--i:1">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3 class="headline-md">Selecione os destinatários</h3>
+                        <p class="body-md">Escolha entre seus grupos, contatos ou campanhas salvas. Busca rápida com filtros inteligentes.</p>
+                    </div>
+                </div>
+
+                <div class="step reveal" style="--i:2">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3 class="headline-md">Escreva e anexe mídia</h3>
+                        <p class="body-md">Compose sua mensagem com formatação do WhatsApp. Adicione fotos e vídeos com legendas individuais.</p>
+                    </div>
+                </div>
+
+                <div class="step reveal" style="--i:3">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h3 class="headline-md">Agende e pronto!</h3>
+                        <p class="body-md">Defina o horário e frequência. O EmyFlix WA cuida do resto — disparando automaticamente com proteção anti-ban.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ PRICING ═══════════════ -->
+    <section class="pricing-section" id="planos">
+        <div class="container">
+            <div class="section-header reveal">
+                <span class="eyebrow">PLANOS & PREÇOS</span>
+                <h2 class="headline-lg">Escolha o plano ideal<br>para o seu negócio</h2>
+                <p class="body-lg">Comece grátis. Upgrade quando precisar de mais poder.</p>
+            </div>
+
+            <div class="grid-4 stagger">
+                <!-- Trial -->
+                <div class="price-card reveal" style="--i:0">
+                    <div class="price-plan-name">⚡ Trial</div>
+                    <div class="price-amount">
+                        <span class="currency">R$</span>0
+                    </div>
+                    <div class="price-period">7 dias grátis</div>
+                    <ul class="price-features">
+                        <li><span class="icon">✓</span> 1 WhatsApp conectado</li>
+                        <li><span class="icon">✓</span> 1 agendamento ativo</li>
+                        <li><span class="icon">✓</span> Até 25 grupos por envio</li>
+                        <li><span class="icon">✓</span> Envio de mídia</li>
+                    </ul>
+                    <a href="/login.html" class="btn-outline">Testar Grátis</a>
+                </div>
+
+                <!-- Start -->
+                <div class="price-card reveal" style="--i:1">
+                    <div class="price-plan-name">🥉 Start</div>
+                    <div class="price-amount">
+                        <span class="currency">R$</span>39<span class="cents">,90</span>
+                    </div>
+                    <div class="price-period">por mês</div>
+                    <ul class="price-features">
+                        <li><span class="icon">✓</span> 1 WhatsApp conectado</li>
+                        <li><span class="icon">✓</span> 2 agendamentos ativos</li>
+                        <li><span class="icon">✓</span> Até 50 grupos por envio</li>
+                        <li><span class="icon">✓</span> Campanhas ilimitadas</li>
+                        <li><span class="icon">✓</span> Anti-ban inteligente</li>
+                    </ul>
+                    <a href="https://wa.me/447404200049?text=Olá! Quero ativar o Plano Start do EmyFlix WA" target="_blank" class="btn-outline">Escolher Start</a>
+                </div>
+
+                <!-- Pro -->
+                <div class="price-card popular reveal" style="--i:2">
+                    <div class="popular-tag">⭐ MAIS POPULAR</div>
+                    <div class="price-plan-name">🚀 Pro</div>
+                    <div class="price-amount">
+                        <span class="currency">R$</span>79<span class="cents">,90</span>
+                    </div>
+                    <div class="price-period">por mês</div>
+                    <ul class="price-features">
+                        <li><span class="icon">✓</span> 2 WhatsApps conectados</li>
+                        <li><span class="icon">✓</span> 4 agendamentos ativos</li>
+                        <li><span class="icon">✓</span> Até 150 grupos por envio</li>
+                        <li><span class="icon">✓</span> Campanhas ilimitadas</li>
+                        <li><span class="icon">✓</span> Suporte prioritário</li>
+                    </ul>
+                    <a href="https://wa.me/447404200049?text=Olá! Quero ativar o Plano Pro do EmyFlix WA" target="_blank" class="btn-gradient">Escolher Pro →</a>
+                </div>
+
+                <!-- Diamond -->
+                <div class="price-card reveal" style="--i:3">
+                    <div class="price-plan-name">💎 Diamante</div>
+                    <div class="price-amount">
+                        <span class="currency">R$</span>149<span class="cents">,90</span>
+                    </div>
+                    <div class="price-period">por mês</div>
+                    <ul class="price-features">
+                        <li><span class="icon">✓</span> 4 WhatsApps conectados</li>
+                        <li><span class="icon">✓</span> 8 agendamentos ativos</li>
+                        <li><span class="icon">✓</span> Até 400 grupos por envio</li>
+                        <li><span class="icon">✓</span> Ideal para agências</li>
+                        <li><span class="icon">✓</span> Gestão de campanhas</li>
+                    </ul>
+                    <a href="https://wa.me/447404200049?text=Olá! Quero ativar o Plano Diamante do EmyFlix WA" target="_blank" class="btn-outline">Escolher Diamante</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ ADMIN / AGENCIES ═══════════════ -->
+    <section class="admin-section">
+        <div class="container">
+            <div class="section-header reveal">
+                <span class="eyebrow">PARA AGÊNCIAS & ADMINS</span>
+                <h2 class="headline-lg">Painel administrativo<br>com controle total</h2>
+                <p class="body-lg">Gerencie clientes, controle planos e monitore todos os envios em um painel dedicado.</p>
+            </div>
+
+            <div class="admin-feature-grid stagger">
+                <div class="admin-card reveal" style="--i:0">
+                    <div class="admin-card-icon">👥</div>
+                    <h3 class="headline-md">Gestão de Clientes</h3>
+                    <p class="body-md">Crie, edite e gerencie contas de clientes. Defina planos e controle acessos.</p>
+                </div>
+
+                <div class="admin-card reveal" style="--i:1">
+                    <div class="admin-card-icon">⚙️</div>
+                    <h3 class="headline-md">Limites Customizáveis</h3>
+                    <p class="body-md">Ajuste limites de WhatsApps, agendamentos e grupos individualmente por cliente.</p>
+                </div>
+
+                <div class="admin-card reveal" style="--i:2">
+                    <div class="admin-card-icon">📊</div>
+                    <h3 class="headline-md">Histórico Global</h3>
+                    <p class="body-md">Visualize o histórico de envios de todos os clientes. Filtre por usuário e exporte relatórios.</p>
+                </div>
+
+                <div class="admin-card reveal" style="--i:3">
+                    <div class="admin-card-icon">💾</div>
+                    <h3 class="headline-md">Backup & Exportação</h3>
+                    <p class="body-md">Exporte dados em JSON ou CSV com um clique. Backup completo de agendamentos e histórico.</p>
+                </div>
+
+                <div class="admin-card reveal" style="--i:4">
+                    <div class="admin-card-icon">🔐</div>
+                    <h3 class="headline-md">Segurança Avançada</h3>
+                    <p class="body-md">Autenticação JWT, rate limiting, bcrypt para senhas e helmet para headers de segurança.</p>
+                </div>
+
+                <div class="admin-card reveal" style="--i:5">
+                    <div class="admin-card-icon">🔔</div>
+                    <h3 class="headline-md">Notificações Admin</h3>
+                    <p class="body-md">Receba alertas no WhatsApp quando novos clientes se cadastrarem na plataforma.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ CTA FINAL ═══════════════ -->
+    <section class="cta-section">
+        <div class="container">
+            <div class="reveal">
+                <h2 class="headline-xl">Pronto para<br><span class="gradient-text">automatizar?</span></h2>
+                <p class="body-lg">Junte-se a centenas de profissionais que já economizam horas por dia com o EmyFlix WA.</p>
+                <div class="hero-buttons">
+                    <a href="/login.html" class="btn-gradient">Começar Grátis Agora →</a>
+                    <a href="https://wa.me/447404200049?text=Olá! Quero saber mais sobre o EmyFlix WA" target="_blank" class="btn-outline">💬 Falar com Suporte</a>
+                </div>
+                <p class="cta-tag">7 dias grátis • Sem cartão necessário • Cancele quando quiser</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ FOOTER ═══════════════ -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <a href="#" class="nav-logo">EMYFLIX <span>WA</span></a>
+                    <p>Plataforma profissional de automação e agendamento de mensagens para WhatsApp. Envie com inteligência, proteja sua conta.</p>
+                </div>
+
+                <div class="footer-col">
+                    <h4>Produto</h4>
+                    <a href="#recursos">Recursos</a>
+                    <a href="#planos">Planos & Preços</a>
+                    <a href="#como-funciona">Como Funciona</a>
+                    <a href="/login.html">Acessar o App</a>
+                </div>
+
+                <div class="footer-col">
+                    <h4>Suporte</h4>
+                    <a href="https://wa.me/447404200049?text=Olá! Preciso de ajuda com o EmyFlix WA" target="_blank">WhatsApp Suporte</a>
+                    <a href="https://wa.me/447404200049?text=Olá! Quero ativar meu plano no EmyFlix WA" target="_blank">Ativar Plano</a>
+                    <a href="https://wa.me/447404200049?text=Olá! Preciso recuperar minha senha" target="_blank">Esqueci Minha Senha</a>
+                </div>
+
+                <div class="footer-col">
+                    <h4>Legal</h4>
+                    <a href="#">Termos de Uso</a>
+                    <a href="#">Política de Privacidade</a>
+                    <a href="#">Uso Responsável</a>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <span>© 2026 EmyFlix WA. Todos os direitos reservados.</span>
+                <span>Feito com 💚 para automatizar com inteligência</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- ═══════════════ JAVASCRIPT ═══════════════ -->
+    <script>
+        // ── Scroll Reveal (IntersectionObserver) ─────────────
+        const revealElements = document.querySelectorAll('.reveal, .reveal-left, .reveal-right, .reveal-scale');
+
+        const revealObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('revealed');
+                    // Once revealed, stop observing for performance
+                    revealObserver.unobserve(entry.target);
+                }
+            });
+        }, {
+            threshold: 0.15,
+            rootMargin: '0px 0px -40px 0px'
+        });
+
+        revealElements.forEach(el => revealObserver.observe(el));
+
+        // ── Navbar scroll effect ─────────────────────────────
+        const navbar = document.getElementById('navbar');
+        let lastScroll = 0;
+
+        window.addEventListener('scroll', () => {
+            const currentScroll = window.scrollY;
+            if (currentScroll > 80) {
+                navbar.classList.add('scrolled');
+            } else {
+                navbar.classList.remove('scrolled');
+            }
+            lastScroll = currentScroll;
+        }, { passive: true });
+
+        // ── Stats Counter Animation ──────────────────────────
+        const statElements = document.querySelectorAll('[data-count]');
+
+        const countObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const el = entry.target;
+                    const target = parseInt(el.getAttribute('data-count'));
+                    const duration = 2000;
+                    const startTime = performance.now();
+
+                    function animateCount(currentTime) {
+                        const elapsed = currentTime - startTime;
+                        const progress = Math.min(elapsed / duration, 1);
+                        // easeOutExpo
+                        const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+                        const current = Math.round(target * eased);
+
+                        if (target >= 1000) {
+                            el.textContent = current.toLocaleString('pt-BR') + '+';
+                        } else if (target === 99) {
+                            el.textContent = current + '%';
+                        } else {
+                            el.textContent = current;
+                        }
+
+                        if (progress < 1) {
+                            requestAnimationFrame(animateCount);
+                        }
+                    }
+
+                    requestAnimationFrame(animateCount);
+                    countObserver.unobserve(el);
+                }
+            });
+        }, { threshold: 0.5 });
+
+        statElements.forEach(el => countObserver.observe(el));
+
+        // ── Smooth Scroll for anchor links ───────────────────
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    e.preventDefault();
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+
+        // ── Mobile Nav Toggle ────────────────────────────────
+        function toggleMobileNav() {
+            const links = document.querySelector('.nav-links');
+            if (links.style.display === 'flex') {
+                links.style.display = 'none';
+            } else {
+                links.style.display = 'flex';
+                links.style.flexDirection = 'column';
+                links.style.position = 'absolute';
+                links.style.top = '100%';
+                links.style.left = '0';
+                links.style.right = '0';
+                links.style.background = 'rgba(11, 17, 32, 0.95)';
+                links.style.backdropFilter = 'blur(20px)';
+                links.style.padding = '24px';
+                links.style.borderBottom = '1px solid rgba(37, 211, 102, 0.1)';
+                links.style.gap = '20px';
+            }
+        }
+
+        // ── Redirect logged-in users ─────────────────────────
+        if (localStorage.getItem('wa_token')) {
+            const user = JSON.parse(localStorage.getItem('wa_user') || '{}');
+            // If they have a valid token, show a subtle "Go to App" link
+            const heroButtons = document.querySelector('.hero-buttons');
+            if (heroButtons) {
+                const appLink = document.createElement('a');
+                appLink.href = user.role === 'admin' ? '/admin.html' : '/index.html';
+                appLink.className = 'btn-gradient';
+                appLink.textContent = 'Acessar Meu Painel →';
+                heroButtons.innerHTML = '';
+                heroButtons.appendChild(appLink);
+            }
+        }
+    </script>
+</body>
+</html>
