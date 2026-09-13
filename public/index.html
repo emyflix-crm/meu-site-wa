@@ -33,7 +33,7 @@
             <a class="nav-item" onclick="showPage('campaigns')"><span>📢</span> Minhas Campanhas</a>
             <a class="nav-item" onclick="showPage('history')"><span>📋</span> Histórico</a>
             <a class="nav-item" onclick="showPage('connect')" id="connect-nav"><span>📱</span> WhatsApp</a>
-            <a class="nav-item" href="/landing.html#planos"><span>💎</span> Planos e Preços</a>
+            <a class="nav-item" onclick="showPage('plans')"><span>💎</span> Planos e Preços</a>
             <a class="nav-item" onclick="showPage('admin')" id="admin-nav" style="display:none"><span>🛡️</span> Painel Admin</a>
         </nav>
 
@@ -408,7 +408,69 @@
             </div>
         </div>
 
-        <!-- 4. HISTÓRICO -->
+        <!-- 4. PLANOS E PREÇOS -->
+        <div id="page-plans" class="page">
+            <div class="page-header">
+                <h1>💎 Planos e Preços</h1>
+                <p>Escolha o plano ideal para a sua rotina de envios</p>
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px;margin-bottom:22px;">
+                <div class="card" style="padding:24px;border-color:rgba(245,158,11,0.35);">
+                    <div style="font-size:17px;font-weight:800;color:var(--warning);margin-bottom:10px;">⚡ Trial Grátis</div>
+                    <div style="font-size:34px;font-weight:800;margin-bottom:16px;color:var(--warning);">R$ 0</div>
+                    <div style="font-size:13px;color:var(--text2);line-height:1.9;">
+                        ✓ 7 dias grátis<br>
+                        ✓ 1 WhatsApp<br>
+                        ✓ 1 agendamento<br>
+                        ✓ Até 25 grupos
+                    </div>
+                </div>
+
+                <div class="card" style="padding:24px;border-color:rgba(59,130,246,0.35);">
+                    <div style="font-size:17px;font-weight:800;color:var(--info);margin-bottom:10px;">🥉 Plano Start</div>
+                    <div style="font-size:34px;font-weight:800;margin-bottom:16px;color:var(--info);">R$ 39<span style="font-size:18px;">,90</span><span style="font-size:12px;color:var(--text3);font-weight:400;">/mês</span></div>
+                    <div style="font-size:13px;color:var(--text2);line-height:1.9;">
+                        ✓ 1 WhatsApp<br>
+                        ✓ 2 agendamentos<br>
+                        ✓ Até 50 grupos
+                    </div>
+                </div>
+
+                <div class="card" style="padding:24px;border-color:rgba(139,92,246,0.5);position:relative;">
+                    <div style="position:absolute;top:14px;right:14px;background:var(--purple);color:#fff;font-size:10px;font-weight:700;padding:4px 9px;border-radius:12px;">⭐ POPULAR</div>
+                    <div style="font-size:17px;font-weight:800;color:var(--purple);margin-bottom:10px;">🚀 Plano Pro</div>
+                    <div style="font-size:34px;font-weight:800;margin-bottom:16px;color:var(--purple);">R$ 79<span style="font-size:18px;">,90</span><span style="font-size:12px;color:var(--text3);font-weight:400;">/mês</span></div>
+                    <div style="font-size:13px;color:var(--text2);line-height:1.9;">
+                        ✓ 2 WhatsApps<br>
+                        ✓ 4 agendamentos<br>
+                        ✓ Até 150 grupos
+                    </div>
+                </div>
+
+                <div class="card" style="padding:24px;border-color:rgba(37,211,102,0.5);">
+                    <div style="font-size:17px;font-weight:800;color:var(--primary);margin-bottom:10px;">💎 Plano Diamante</div>
+                    <div style="font-size:34px;font-weight:800;margin-bottom:16px;color:var(--primary);">R$ 149<span style="font-size:18px;">,90</span><span style="font-size:12px;color:var(--text3);font-weight:400;">/mês</span></div>
+                    <div style="font-size:13px;color:var(--text2);line-height:1.9;">
+                        ✓ 4 WhatsApps<br>
+                        ✓ 8 agendamentos<br>
+                        ✓ Até 400 grupos
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="padding:24px;display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;">
+                <div>
+                    <h2 style="font-size:18px;margin-bottom:6px;">Quer ativar ou mudar seu plano?</h2>
+                    <p style="font-size:13px;color:var(--text2);">Fale com o suporte e escolha a melhor opção para você.</p>
+                </div>
+                <a href="https://wa.me/447404200049?text=Ol%C3%A1!%20Gostei%20do%20EmyFlix%20WA%20e%20quero%20ativar%20meu%20plano." target="_blank" class="btn btn-primary" style="text-decoration:none;padding:13px 20px;">
+                    💬 Falar com Suporte / Ativar Plano
+                </a>
+            </div>
+        </div>
+
+        <!-- 5. HISTÓRICO -->
         <div id="page-history" class="page">
             <div class="page-header">
                 <h1>Histórico de Disparos</h1>
