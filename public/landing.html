@@ -6,7 +6,8 @@
     <title>EmyFlix WA — Automação e Agendador WhatsApp</title>
     <meta name="description" content="Agende mensagens, crie campanhas e gerencie múltiplos WhatsApps em um só lugar. Teste grátis por 7 dias.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="icons.js"></script>
     <style>
         /* ================================================================
            RESET & BASE — Auros-inspired deep dark theme
@@ -1105,6 +1106,334 @@
             .particle { animation: none; opacity: 0.3; }
             .scroll-indicator { animation: none; }
         }
+
+        /* ================================================================
+           AUTH MODAL — brand colors (Electric Iris violet), independent
+           of this page's green Auros palette above
+           ================================================================ */
+        :root {
+            --auth-void: #000000;
+            --auth-panel: #050505;
+            --auth-field: #0e0e0e;
+            --auth-border: rgba(255, 255, 255, 0.08);
+            --auth-violet: #8052ff;
+            --auth-violet-dark: #6a3fe0;
+            --auth-violet-glow: rgba(128, 82, 255, 0.14);
+            --auth-white: #ffffff;
+            --auth-mist: #9a9a9a;
+            --auth-danger: #f5455c;
+        }
+
+        .auth-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease;
+            padding: 20px;
+        }
+        .auth-modal-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .auth-modal {
+            background: var(--auth-panel);
+            border: 1px solid var(--auth-border);
+            border-radius: 24px;
+            width: 100%;
+            max-width: 880px;
+            max-height: 92vh;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            overflow: hidden;
+            position: relative;
+            transform: scale(0.96) translateY(8px);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .auth-modal-overlay.open .auth-modal {
+            transform: scale(1) translateY(0);
+        }
+
+        .auth-modal-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 1px solid var(--auth-border);
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--auth-mist);
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+            transition: all 0.15s ease;
+        }
+        .auth-modal-close:hover {
+            color: var(--auth-white);
+            border-color: var(--auth-violet);
+        }
+
+        /* Left panel — brand */
+        .auth-modal-left {
+            background: var(--auth-void);
+            padding: 56px 44px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .auth-modal-left::after {
+            content: '';
+            position: absolute;
+            top: -20%; left: -20%;
+            width: 70%; height: 70%;
+            background: radial-gradient(circle, var(--auth-violet-glow) 0%, transparent 65%);
+            pointer-events: none;
+        }
+        .auth-modal-logo {
+            display: block;
+            width: 100%;
+            max-width: 260px;
+            height: auto;
+            margin-bottom: 28px;
+            position: relative;
+            z-index: 1;
+        }
+        .auth-modal-headline {
+            font-size: 2.1rem;
+            font-weight: 400;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+            color: var(--auth-white);
+            margin-bottom: 14px;
+            position: relative;
+            z-index: 1;
+            transition: opacity 0.2s ease;
+        }
+        .auth-modal-sub {
+            font-size: 15px;
+            font-weight: 200;
+            color: var(--auth-mist);
+            line-height: 1.6;
+            max-width: 320px;
+            position: relative;
+            z-index: 1;
+            transition: opacity 0.2s ease;
+        }
+
+        /* Right panel — form */
+        .auth-modal-right {
+            background: var(--auth-panel);
+            padding: 56px 44px;
+            overflow-y: auto;
+        }
+
+        .auth-modal .auth-tabs {
+            display: flex;
+            background: var(--auth-field);
+            border: 1px solid var(--auth-border);
+            border-radius: 16px;
+            padding: 5px;
+            margin-bottom: 28px;
+        }
+        .auth-modal .auth-tab {
+            flex: 1;
+            padding: 10px 0;
+            text-align: center;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--auth-mist);
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            background: transparent;
+            font-family: inherit;
+        }
+        .auth-modal .auth-tab.active {
+            background: var(--auth-violet-glow);
+            color: var(--auth-violet);
+        }
+
+        .auth-modal .auth-form { display: none; }
+        .auth-modal .auth-form.active { display: block; animation: authFormIn 0.25s ease; }
+        @keyframes authFormIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .auth-modal .form-group { margin-bottom: 18px; }
+        .auth-modal .form-group label {
+            display: block;
+            margin-bottom: 7px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--auth-mist);
+        }
+        .auth-modal .input-wrapper { position: relative; }
+        .auth-modal input {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--auth-field);
+            border: 1px solid var(--auth-border);
+            border-radius: 12px;
+            color: var(--auth-white);
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .auth-modal input:focus {
+            outline: none;
+            border-color: var(--auth-violet);
+            box-shadow: 0 0 0 3px var(--auth-violet-glow);
+        }
+        .auth-modal .eye-btn {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--auth-mist);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .auth-modal .eye-btn:hover { color: var(--auth-white); }
+
+        .auth-modal .form-options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 22px;
+            font-size: 13px;
+        }
+        .auth-modal .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            color: var(--auth-mist);
+        }
+        .auth-modal .checkbox-group input {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: var(--auth-violet);
+        }
+        .auth-modal .text-link {
+            color: var(--auth-violet);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 13px;
+        }
+        .auth-modal .text-link:hover { text-decoration: underline; }
+
+        .auth-modal .btn-submit {
+            width: 100%;
+            padding: 14px;
+            background: var(--auth-violet);
+            color: #fff;
+            border: none;
+            border-radius: 9999px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s;
+            margin-bottom: 14px;
+            font-family: inherit;
+        }
+        .auth-modal .btn-submit:hover:not(:disabled) { background: var(--auth-violet-dark); }
+        .auth-modal .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .auth-modal .footer-note {
+            text-align: center;
+            font-size: 13px;
+            color: var(--auth-mist);
+            margin-bottom: 14px;
+        }
+        .auth-modal .switch-link {
+            text-align: center;
+            font-size: 14px;
+            color: var(--auth-mist);
+        }
+        .auth-modal .switch-link a { cursor: pointer; }
+
+        .auth-modal-social {
+            margin-top: 22px;
+            padding-top: 22px;
+            border-top: 1px solid var(--auth-border);
+        }
+        .auth-modal-social-label {
+            text-align: center;
+            font-size: 12px;
+            color: var(--auth-mist);
+            margin-bottom: 14px;
+        }
+        .auth-modal-social-btn {
+            width: 100%;
+            padding: 11px;
+            background: var(--auth-field);
+            border: 1px solid var(--auth-border);
+            border-radius: 9999px;
+            color: var(--auth-white);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+        .auth-modal-social-btn:hover { border-color: var(--auth-violet); background: var(--auth-violet-glow); }
+
+        .auth-modal-toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 14px 22px;
+            border-radius: 12px;
+            background: #0a0a0a;
+            border: 1px solid var(--auth-border);
+            border-left: 3px solid var(--auth-violet);
+            color: var(--auth-white);
+            font-size: 14px;
+            font-weight: 500;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            z-index: 10001;
+        }
+        .auth-modal-toast.show { transform: translateY(0); opacity: 1; }
+        .auth-modal-toast.error { border-left-color: var(--auth-danger); }
+
+        @media (max-width: 760px) {
+            .auth-modal { grid-template-columns: 1fr; max-height: 94vh; overflow-y: auto; }
+            .auth-modal-left { padding: 36px 28px 24px; }
+            .auth-modal-headline { font-size: 1.6rem; }
+            .auth-modal-right { padding: 28px; }
+        }
     </style>
 </head>
 <body>
@@ -1119,7 +1448,7 @@
                 <li><a href="#planos">Planos</a></li>
                 <li><a href="https://wa.me/447404200049?text=Olá! Preciso de ajuda com o EmyFlix WA" target="_blank">Contato</a></li>
             </ul>
-            <a href="/login.html" class="btn-gradient">Começar Grátis →</a>
+            <a href="#" class="btn-gradient" onclick="goToAppOrOpenModal('register'); return false;">Começar Grátis →</a>
             <button class="nav-mobile-btn" onclick="toggleMobileNav()" aria-label="Menu">☰</button>
         </div>
     </nav>
@@ -1146,7 +1475,7 @@
                     Agende mensagens, crie campanhas inteligentes e gerencie múltiplos números em uma única plataforma poderosa.
                 </p>
                 <div class="hero-buttons">
-                    <a href="/login.html" class="btn-gradient">Começar Grátis por 7 Dias →</a>
+                    <a href="#" class="btn-gradient" onclick="goToAppOrOpenModal('register'); return false;">Começar Grátis por 7 Dias →</a>
                     <a href="#recursos" class="btn-outline">Ver Recursos ↓</a>
                 </div>
                 <p class="hero-tag">Sem cartão de crédito necessário • Configuração em 2 minutos</p>
@@ -1348,7 +1677,7 @@ Acesse: <i>link.do/promo</i></div>
                         <li><span class="icon">✓</span> Até 25 grupos por envio</li>
                         <li><span class="icon">✓</span> Envio de mídia</li>
                     </ul>
-                    <a href="/login.html" class="btn-outline">Testar Grátis</a>
+                    <a href="#" class="btn-outline" onclick="goToAppOrOpenModal('register'); return false;">Testar Grátis</a>
                 </div>
 
                 <!-- Start -->
@@ -1462,7 +1791,7 @@ Acesse: <i>link.do/promo</i></div>
                 <h2 class="headline-xl">Pronto para<br><span class="gradient-text">automatizar?</span></h2>
                 <p class="body-lg">Junte-se a centenas de profissionais que já economizam horas por dia com o EmyFlix WA.</p>
                 <div class="hero-buttons">
-                    <a href="/login.html" class="btn-gradient">Começar Grátis Agora →</a>
+                    <a href="#" class="btn-gradient" onclick="goToAppOrOpenModal('register'); return false;">Começar Grátis Agora →</a>
                     <a href="https://wa.me/447404200049?text=Olá! Quero saber mais sobre o EmyFlix WA" target="_blank" class="btn-outline">💬 Falar com Suporte</a>
                 </div>
                 <p class="cta-tag">7 dias grátis • Sem cartão necessário • Cancele quando quiser</p>
@@ -1484,7 +1813,7 @@ Acesse: <i>link.do/promo</i></div>
                     <a href="#recursos">Recursos</a>
                     <a href="#planos">Planos & Preços</a>
                     <a href="#como-funciona">Como Funciona</a>
-                    <a href="/login.html">Acessar o App</a>
+                    <a href="#" onclick="goToAppOrOpenModal('login'); return false;">Acessar o App</a>
                 </div>
 
                 <div class="footer-col">
@@ -1625,6 +1954,276 @@ Acesse: <i>link.do/promo</i></div>
                 appLink.textContent = 'Acessar Meu Painel →';
                 heroButtons.innerHTML = '';
                 heroButtons.appendChild(appLink);
+            }
+        }
+    </script>
+
+    <!-- ═══════════════ AUTH MODAL ═══════════════ -->
+    <div class="auth-modal-overlay" id="auth-modal-overlay" onclick="if(event.target===this) closeAuthModal()">
+        <div class="auth-modal">
+            <button type="button" class="auth-modal-close" onclick="closeAuthModal()" aria-label="Fechar">✕</button>
+
+            <div class="auth-modal-left">
+                <img src="logo.png" alt="EmyFlix WA" class="auth-modal-logo">
+                <h2 class="auth-modal-headline" id="auth-modal-headline">Bem-vindo de volta</h2>
+                <p class="auth-modal-sub" id="auth-modal-sub">Entre para continuar automatizando seus envios no WhatsApp.</p>
+            </div>
+
+            <div class="auth-modal-right">
+                <div class="auth-tabs">
+                    <button type="button" class="auth-tab active" id="auth-modal-tab-login" onclick="switchAuthModalTab('login')">Entrar</button>
+                    <button type="button" class="auth-tab" id="auth-modal-tab-register" onclick="switchAuthModalTab('register')">Criar Conta</button>
+                </div>
+
+                <!-- LOGIN -->
+                <form id="auth-modal-login-form" class="auth-form active" onsubmit="handleModalLogin(event)">
+                    <div class="form-group">
+                        <label>E-mail</label>
+                        <div class="input-wrapper">
+                            <input type="email" id="am-login-email" placeholder="seu@email.com" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Senha</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="am-login-password" placeholder="••••••••" required>
+                            <button type="button" class="eye-btn" onclick="toggleModalPassword('am-login-password')">
+                                <span data-icon="eye" data-size="16"></span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-options">
+                        <label class="checkbox-group">
+                            <input type="checkbox"> Lembrar de mim
+                        </label>
+                        <a href="https://wa.me/447404200049?text=Preciso%20recuperar%20minha%20senha" target="_blank" class="text-link">Esqueci minha senha</a>
+                    </div>
+                    <button type="submit" class="btn-submit" id="am-login-btn">
+                        ENTRAR <span data-icon="arrow-right" data-size="16" class="arrow-icon"></span>
+                    </button>
+                    <div class="switch-link">
+                        Não possui conta? <a class="text-link" onclick="switchAuthModalTab('register')">Criar grátis</a>
+                    </div>
+                </form>
+
+                <!-- REGISTER -->
+                <form id="auth-modal-register-form" class="auth-form" onsubmit="handleModalRegister(event)">
+                    <div class="form-group">
+                        <label>Nome completo</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="am-reg-name" placeholder="Seu Nome" required minlength="2" maxlength="50">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>E-mail</label>
+                        <div class="input-wrapper">
+                            <input type="email" id="am-reg-email" placeholder="seu@email.com" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Senha</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="am-reg-password" placeholder="Mínimo 8 caracteres" required minlength="8">
+                            <button type="button" class="eye-btn" onclick="toggleModalPassword('am-reg-password')">
+                                <span data-icon="eye" data-size="16"></span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Confirmar Senha</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="am-reg-password-confirm" placeholder="Confirme sua senha" required minlength="8">
+                            <button type="button" class="eye-btn" onclick="toggleModalPassword('am-reg-password-confirm')">
+                                <span data-icon="eye" data-size="16"></span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label id="am-captcha-label">Verificação de Segurança</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="am-reg-captcha" placeholder="Resultado da soma" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-submit" id="am-reg-btn">
+                        COMEÇAR GRÁTIS <span data-icon="arrow-right" data-size="16" class="arrow-icon"></span>
+                    </button>
+                    <div class="footer-note">7 dias grátis • Sem cartão necessário</div>
+                    <div class="switch-link">
+                        Já possui conta? <a class="text-link" onclick="switchAuthModalTab('login')">Entrar</a>
+                    </div>
+                </form>
+
+                <div class="auth-modal-social">
+                    <div class="auth-modal-social-label">ou continue com</div>
+                    <button type="button" class="auth-modal-social-btn" onclick="showAuthModalToast('Login com Google em breve!', 'error')">
+                        <span data-icon="globe" data-size="16"></span> Google
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="auth-modal-toast" class="auth-modal-toast"></div>
+
+    <script>
+        // ── Auth Modal: open/close ────────────────────────────
+        let amNum1 = 0, amNum2 = 0;
+
+        function openAuthModal(tab) {
+            document.getElementById('auth-modal-overlay').classList.add('open');
+            document.body.style.overflow = 'hidden';
+            switchAuthModalTab(tab || 'login');
+        }
+        function closeAuthModal() {
+            document.getElementById('auth-modal-overlay').classList.remove('open');
+            document.body.style.overflow = '';
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeAuthModal();
+        });
+
+        function switchAuthModalTab(tab) {
+            document.getElementById('auth-modal-tab-login').classList.toggle('active', tab === 'login');
+            document.getElementById('auth-modal-tab-register').classList.toggle('active', tab === 'register');
+            document.getElementById('auth-modal-login-form').classList.toggle('active', tab === 'login');
+            document.getElementById('auth-modal-register-form').classList.toggle('active', tab === 'register');
+
+            const headline = document.getElementById('auth-modal-headline');
+            const sub = document.getElementById('auth-modal-sub');
+            if (tab === 'login') {
+                headline.textContent = 'Bem-vindo de volta';
+                sub.textContent = 'Entre para continuar automatizando seus envios no WhatsApp.';
+            } else {
+                headline.textContent = 'Comece gratuitamente';
+                sub.textContent = 'Teste os principais recursos do EmyFlix WA por 7 dias, sem cartão de crédito.';
+                generateModalCaptcha();
+            }
+        }
+
+        function toggleModalPassword(inputId) {
+            const input = document.getElementById(inputId);
+            const btn = input.nextElementSibling;
+            if (input.type === 'password') {
+                input.type = 'text';
+                if (typeof icon === 'function') btn.innerHTML = icon('eye-off', 16);
+            } else {
+                input.type = 'password';
+                if (typeof icon === 'function') btn.innerHTML = icon('eye', 16);
+            }
+        }
+
+        function generateModalCaptcha() {
+            amNum1 = Math.floor(Math.random() * 8) + 2;
+            amNum2 = Math.floor(Math.random() * 8) + 1;
+            document.getElementById('am-captcha-label').textContent = `Quanto é ${amNum1} + ${amNum2}?`;
+            document.getElementById('am-reg-captcha').value = '';
+        }
+
+        function showAuthModalToast(msg, type = 'success') {
+            const t = document.getElementById('auth-modal-toast');
+            t.textContent = msg;
+            t.className = `auth-modal-toast ${type} show`;
+            setTimeout(() => t.className = 'auth-modal-toast', 3500);
+        }
+
+        async function handleModalLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('am-login-email').value.trim();
+            const password = document.getElementById('am-login-password').value;
+            const btn = document.getElementById('am-login-btn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.textContent = 'Entrando...';
+
+            try {
+                const res = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                if (res.ok && data.token) {
+                    localStorage.setItem('wa_token', data.token);
+                    localStorage.setItem('wa_user', JSON.stringify(data.user));
+                    showAuthModalToast('✅ Login realizado com sucesso!', 'success');
+                    setTimeout(() => {
+                        window.location.href = data.user?.role === 'admin' ? '/admin.html' : '/index.html';
+                    }, 800);
+                } else {
+                    showAuthModalToast(data.error || 'Erro ao efetuar login', 'error');
+                }
+            } catch (err) {
+                showAuthModalToast('Erro de conexão com o servidor', 'error');
+            }
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
+
+        async function handleModalRegister(e) {
+            e.preventDefault();
+            const name = document.getElementById('am-reg-name').value.trim();
+            const email = document.getElementById('am-reg-email').value.trim();
+            const password = document.getElementById('am-reg-password').value;
+            const passwordConfirm = document.getElementById('am-reg-password-confirm').value;
+            const captcha = document.getElementById('am-reg-captcha').value.trim();
+
+            if (password !== passwordConfirm) {
+                showAuthModalToast('As senhas não coincidem!', 'error');
+                return;
+            }
+            if (parseInt(captcha) !== (amNum1 + amNum2)) {
+                showAuthModalToast('Resposta de segurança incorreta!', 'error');
+                generateModalCaptcha();
+                return;
+            }
+
+            const btn = document.getElementById('am-reg-btn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.textContent = 'Criando conta...';
+
+            try {
+                const res = await fetch('/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, password, captcha })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    localStorage.setItem('wa_token', data.token);
+                    localStorage.setItem('wa_user', JSON.stringify(data.user));
+                    showAuthModalToast('🎉 Conta criada com sucesso!', 'success');
+                    setTimeout(() => { window.location.href = '/index.html'; }, 900);
+                } else {
+                    showAuthModalToast(data.error || 'Erro ao realizar cadastro', 'error');
+                    generateModalCaptcha();
+                }
+            } catch (err) {
+                showAuthModalToast('Erro de conexão ao cadastrar', 'error');
+                generateModalCaptcha();
+            }
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
+
+        // Render icons inside the modal
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof icon === 'function') {
+                document.querySelectorAll('#auth-modal-overlay [data-icon]').forEach(el => {
+                    const name = el.getAttribute('data-icon');
+                    const size = el.getAttribute('data-size') || 16;
+                    el.innerHTML = icon(name, size);
+                });
+            }
+        });
+
+        // Se já tiver sessão salva, os cliques abaixo pulam direto pro painel
+        function goToAppOrOpenModal(tab) {
+            const token = localStorage.getItem('wa_token');
+            if (token) {
+                const user = JSON.parse(localStorage.getItem('wa_user') || '{}');
+                window.location.href = user.role === 'admin' ? '/admin.html' : '/index.html';
+            } else {
+                openAuthModal(tab);
             }
         }
     </script>
