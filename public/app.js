@@ -93,7 +93,7 @@ function showPage(page) {
     const target = document.getElementById('page-' + page);
     if (target) target.classList.add('active');
 
-    const pages = ['dashboard', 'schedule', 'campaigns', 'history', 'connect', 'admin'];
+    const pages = ['dashboard', 'schedule', 'campaigns', 'history', 'connect', 'plans', 'admin'];
     const idx = pages.indexOf(page);
     if (idx >= 0) document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
 
