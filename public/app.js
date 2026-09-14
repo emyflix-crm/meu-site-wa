@@ -100,6 +100,7 @@ function showPage(page) {
     if (page === 'history') loadHistory();
     if (page === 'dashboard') loadSchedules();
     if (page === 'campaigns') initCampaignsPage();
+    if (page === 'plans') updateCustomPlan();
     if (page === 'schedule') {
         loadCampaigns();
         updateLivePreview();
@@ -110,6 +111,29 @@ function showPage(page) {
         loadAdminHistory();
     }
     closeMobileMenu();
+}
+
+
+function updateCustomPlan() {
+    const whatsappInput = document.getElementById('custom-whatsapps');
+    const groupsInput = document.getElementById('custom-groups');
+    if (!whatsappInput || !groupsInput) return;
+
+    const whatsapps = Number(whatsappInput.value);
+    const groups = Number(groupsInput.value);
+    const schedules = whatsapps * 2;
+    const price = 19.90 + (whatsapps * 25) + (Math.ceil(groups / 50) * 5);
+    const priceText = price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const priceEl = document.getElementById('custom-plan-price');
+    const summaryEl = document.getElementById('custom-plan-summary');
+    const linkEl = document.getElementById('custom-plan-link');
+
+    if (priceEl) priceEl.innerHTML = 'R$ ' + priceText + '<span style="font-size:12px;color:var(--text3);font-weight:400;">/mês</span>';
+    if (summaryEl) summaryEl.innerHTML = '✓ ' + whatsapps + ' WhatsApp' + (whatsapps > 1 ? 's' : '') + ' &nbsp; • &nbsp; até ' + groups.toLocaleString('pt-BR') + ' grupos &nbsp; • &nbsp; ' + schedules + ' agendamentos ativos';
+
+    const message = 'Olá! Quero solicitar um plano personalizado do EmyFlix WA com ' + whatsapps + ' WhatsApp' + (whatsapps > 1 ? 's' : '') + ', até ' + groups + ' grupos e ' + schedules + ' agendamentos ativos. Valor mostrado: R$ ' + priceText + ' por mês.';
+    if (linkEl) linkEl.href = 'https://wa.me/447404200049?text=' + encodeURIComponent(message);
 }
 
 function doLogout() {
