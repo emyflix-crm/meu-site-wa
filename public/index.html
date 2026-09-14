@@ -459,6 +459,72 @@
                 </div>
             </div>
 
+            <div class="card" style="padding:26px;margin-bottom:22px;border-color:rgba(37,211,102,0.35);background:linear-gradient(135deg,rgba(37,211,102,0.06),rgba(59,130,246,0.04));">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px;flex-wrap:wrap;margin-bottom:24px;">
+                    <div>
+                        <div style="font-size:11px;color:var(--primary);font-weight:800;letter-spacing:1px;margin-bottom:7px;">PLANO SOB MEDIDA</div>
+                        <h2 style="font-size:22px;margin-bottom:6px;">⚙️ Monte seu plano personalizado</h2>
+                        <p style="font-size:13px;color:var(--text2);">Escolha quantos WhatsApps e grupos você precisa. O valor é calculado na hora.</p>
+                    </div>
+                    <div style="font-size:12px;color:var(--text3);background:var(--bg3);border:1px solid var(--border);padding:8px 12px;border-radius:9px;">2 agendamentos por WhatsApp</div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;align-items:end;">
+                    <div class="form-group" style="margin:0;">
+                        <label for="custom-whatsapps">📱 WhatsApps conectados</label>
+                        <select id="custom-whatsapps" onchange="updateCustomPlan()" style="width:100%;">
+                            <option value="1">1 WhatsApp</option>
+                            <option value="2">2 WhatsApps</option>
+                            <option value="3" selected>3 WhatsApps</option>
+                            <option value="4">4 WhatsApps</option>
+                            <option value="5">5 WhatsApps</option>
+                            <option value="6">6 WhatsApps</option>
+                            <option value="7">7 WhatsApps</option>
+                            <option value="8">8 WhatsApps</option>
+                            <option value="9">9 WhatsApps</option>
+                            <option value="10">10 WhatsApps</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin:0;">
+                        <label for="custom-groups">👥 Limite de grupos</label>
+                        <select id="custom-groups" onchange="updateCustomPlan()" style="width:100%;">
+                            <option value="50">Até 50 grupos</option>
+                            <option value="100">Até 100 grupos</option>
+                            <option value="150">Até 150 grupos</option>
+                            <option value="200">Até 200 grupos</option>
+                            <option value="250">Até 250 grupos</option>
+                            <option value="300" selected>Até 300 grupos</option>
+                            <option value="350">Até 350 grupos</option>
+                            <option value="400">Até 400 grupos</option>
+                            <option value="450">Até 450 grupos</option>
+                            <option value="500">Até 500 grupos</option>
+                            <option value="600">Até 600 grupos</option>
+                            <option value="700">Até 700 grupos</option>
+                            <option value="800">Até 800 grupos</option>
+                            <option value="900">Até 900 grupos</option>
+                            <option value="1000">Até 1.000 grupos</option>
+                        </select>
+                    </div>
+
+                    <div style="background:var(--bg3);border:1px solid rgba(37,211,102,0.35);border-radius:12px;padding:15px 18px;">
+                        <div style="font-size:11px;color:var(--text3);margin-bottom:3px;">VALOR DO PLANO</div>
+                        <div id="custom-plan-price" style="font-size:28px;font-weight:800;color:var(--primary);">R$ 124,90<span style="font-size:12px;color:var(--text3);font-weight:400;">/mês</span></div>
+                    </div>
+                </div>
+
+                <div id="custom-plan-summary" style="margin-top:18px;padding:13px 16px;background:rgba(37,211,102,0.06);border-radius:10px;color:var(--text2);font-size:13px;">
+                    ✓ 3 WhatsApps &nbsp; • &nbsp; até 300 grupos &nbsp; • &nbsp; 6 agendamentos ativos
+                </div>
+
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-top:18px;">
+                    <div style="font-size:11px;color:var(--text3);">R$ 19,90 de acesso + R$ 25 por WhatsApp + R$ 5 por bloco de 50 grupos.</div>
+                    <a id="custom-plan-link" href="#" target="_blank" class="btn btn-primary" style="text-decoration:none;padding:13px 20px;">
+                        💬 Solicitar este plano
+                    </a>
+                </div>
+            </div>
+
             <div class="card" style="padding:24px;display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;">
                 <div>
                     <h2 style="font-size:18px;margin-bottom:6px;">Quer ativar ou mudar seu plano?</h2>
