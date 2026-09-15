@@ -838,6 +838,7 @@ function updateLivePreview() {
     const sumTime = document.getElementById('summary-time');
     const sumFreq = document.getElementById('summary-freq');
     const sumDur = document.getElementById('summary-duration');
+    const sumEnd = document.getElementById('summary-end-time');
 
     const isAdmin = CURRENT_USER.role === 'admin' || CURRENT_USER.plan === 'unlimited';
     const maxG = isAdmin ? 99999 : (CURRENT_USER.max_recipients || 50);
@@ -850,10 +851,37 @@ function updateLivePreview() {
     const freqLabels = { daily: 'Diário', once: 'Somente 1x', monthly: 'Mensal', date: 'Data Fixa' };
     if (sumFreq) sumFreq.textContent = freqLabels[freqVal] || freqVal;
 
+    const count = selectedRecipients.length;
+    const intervals = Math.max(0, count - 1);
+    const minSeconds = intervals * 30;
+    const avgSeconds = intervals * 45;
+    const maxSeconds = intervals * 60;
+    const formatDuration = seconds => {
+        if (seconds < 60) return seconds + 's';
+        const totalMinutes = Math.ceil(seconds / 60);
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return hours ? hours + 'h' + String(minutes).padStart(2, '0') : totalMinutes + 'min';
+    };
+
     if (sumDur) {
-        const count = selectedRecipients.length;
-        const durMin = Math.ceil((count * 45) / 60);
-        sumDur.textContent = count <= 1 ? 'Instantâneo (~30s)' : `~${durMin} minuto(s)`;
+        if (count <= 1) sumDur.textContent = count ? 'Envio imediato' : '~0 min';
+        else sumDur.textContent = formatDuration(minSeconds) + ' a ' + formatDuration(maxSeconds) + ' (média ' + formatDuration(avgSeconds) + ')';
+    }
+
+    if (sumEnd) {
+        if (time === '--:--' || count === 0) {
+            sumEnd.textContent = 'Não definido';
+        } else {
+            const [hour, minute] = time.split(':').map(Number);
+            const startMinutes = (hour * 60) + minute;
+            const endMinutesTotal = startMinutes + Math.ceil(avgSeconds / 60);
+            const daysLater = Math.floor(endMinutesTotal / 1440);
+            const endMinutes = endMinutesTotal % 1440;
+            const endHour = String(Math.floor(endMinutes / 60)).padStart(2, '0');
+            const endMinute = String(endMinutes % 60).padStart(2, '0');
+            sumEnd.textContent = endHour + ':' + endMinute + (daysLater ? ' (+' + daysLater + ' dia)' : '');
+        }
     }
 }
 
@@ -1048,7 +1076,7 @@ async function createSchedule(e) {
     const media_delay_ms = mediaDelayMode === 'immediate' ? 0 : 5000;
     const frequency = document.getElementById('schedule-frequency').value;
     const schedule_date = document.getElementById('schedule-date')?.value || '';
-    const send_delay = document.getElementById('schedule-delay')?.value || 'random';
+    const send_delay = 'random';
     const timezone = document.getElementById('schedule-timezone')?.value || 'America/Sao_Paulo';
 
     const btn = document.getElementById('submit-btn');
@@ -1060,7 +1088,7 @@ async function createSchedule(e) {
         });
         const data = await res.json();
         if (data.success) {
-            showToast(`✅ Agendamento criado para ${selectedRecipients.length} grupo(s)!`, 'success');
+            showToast(`✅ Agendamento criado! Se o WhatsApp estiver ocupado, ele aguardará na fila.`, 'success');
             document.getElementById('schedule-time').value = '';
             document.getElementById('schedule-message').value = '';
             mediaItems = [];
