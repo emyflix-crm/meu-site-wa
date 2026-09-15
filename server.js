@@ -742,7 +742,7 @@ app.post('/api/schedules', authMiddleware, (req, res) => {
         time,
         frequency: frequency || 'daily',
         schedule_date: schedule_date || '',
-        send_delay: send_delay || 'random',
+        send_delay: 'random',
         active: true,
         created_at: new Date().toISOString(),
         last_sent: null,
@@ -800,8 +800,8 @@ app.get('/api/history', authMiddleware, (req, res) => {
 app.post('/api/send-now/:id', authMiddleware, async (req, res) => {
     const schedule = loadDB().schedules.find(s => s.id == req.params.id);
     if (!schedule) return res.status(404).json({ error: 'Não encontrado' });
-    sendToAll(schedule);
-    res.json({ success: true, message: `Disparando para ${schedule.recipients.length} destinatário(s)` });
+    enqueueSchedule(schedule);
+    res.json({ success: true, message: `Agendamento adicionado à fila para ${schedule.recipients.length} destinatário(s)` });
 });
 
 app.post('/api/upload', authMiddleware, upload.single('media'), (req, res) => {
@@ -877,6 +877,31 @@ async function sendOne(schedule, recipient) {
     }
 }
 
+const instanceQueues = new Map();
+const queuedScheduleIds = new Set();
+
+function enqueueSchedule(schedule) {
+    const instanceKey = schedule.instance_name || ADMIN_INSTANCE || 'default';
+    const scheduleKey = String(schedule.id);
+
+    if (queuedScheduleIds.has(scheduleKey)) return instanceQueues.get(instanceKey) || Promise.resolve();
+    queuedScheduleIds.add(scheduleKey);
+
+    const previous = instanceQueues.get(instanceKey) || Promise.resolve();
+    let current;
+    current = previous
+        .catch(() => {})
+        .then(() => sendToAll(schedule))
+        .catch(err => logger.error('Schedule queue error', { scheduleId: schedule.id, instance: instanceKey, err: err.message }))
+        .finally(() => {
+            queuedScheduleIds.delete(scheduleKey);
+            if (instanceQueues.get(instanceKey) === current) instanceQueues.delete(instanceKey);
+        });
+
+    instanceQueues.set(instanceKey, current);
+    return current;
+}
+
 async function sendToAll(schedule) {
     const inst = schedule.instance_name || ADMIN_INSTANCE;
     if (inst && EVOLUTION_API_URL) {
@@ -901,13 +926,7 @@ async function sendToAll(schedule) {
 
     for (let i = 0; i < schedule.recipients.length; i++) {
         if (i > 0) {
-            let delay;
-            const delayMode = schedule.send_delay || 'random';
-            if (delayMode === '30s')     delay = 30000;
-            else if (delayMode === '1m') delay = 60000;
-            else if (delayMode === '5m') delay = 5 * 60000;
-            else if (delayMode === '10m') delay = 10 * 60000;
-            else delay = Math.floor(Math.random() * 30000) + 30000;
+            const delay = Math.floor(Math.random() * 30001) + 30000;
             await new Promise(r => setTimeout(r, delay));
         }
         await sendOne(schedule, schedule.recipients[i]);
@@ -969,7 +988,7 @@ cron.schedule('* * * * *', () => {
         due.push(schedule);
     }
 
-    due.forEach(schedule => sendToAll(schedule));
+    due.forEach(schedule => enqueueSchedule(schedule));
 }, { timezone: 'UTC' });
 
 // ── ADMIN COMPLETO: GESTÃO TOTAL DE CLIENTES E LIMITES ────
