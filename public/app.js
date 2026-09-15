@@ -755,6 +755,14 @@ function removeRecipient(id) {
     updateSelectedTags();
 }
 
+function clearAllRecipients() {
+    if (!selectedRecipients.length) return;
+    selectedRecipients = [];
+    renderRecipients();
+    updateSelectedTags();
+    showToast('Todos os destinatários foram desmarcados.', 'success');
+}
+
 function updateSelectedTags() {
     const isAdmin = CURRENT_USER.role === 'admin' || CURRENT_USER.plan === 'unlimited';
     const maxG = isAdmin ? 99999 : (CURRENT_USER.max_recipients || 50);
@@ -770,6 +778,8 @@ function updateSelectedTags() {
             `<span class="tag">${r.type === 'group' ? '👥' : '👤'} ${escHtml(r.name)}<button type="button" onclick="removeRecipient('${r.id}')">✕</button></span>`
         ).join('');
     }
+    const clearBtn = document.getElementById('btn-clear-recipients');
+    if (clearBtn) clearBtn.style.display = selectedRecipients.length ? 'inline-flex' : 'none';
     const saveBtn = document.getElementById('btn-save-as-campaign');
     if (saveBtn) saveBtn.style.display = selectedRecipients.length >= 2 ? 'inline-flex' : 'none';
     updateLivePreview();
