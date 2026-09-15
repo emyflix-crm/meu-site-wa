@@ -147,11 +147,16 @@
 
                             <div class="recipient-list" id="recipient-list"><div class="loading">Carregando grupos do WhatsApp...</div></div>
                             
-                            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;gap:8px;">
                                 <div id="selected-tags" class="selected-tags"></div>
-                                <button type="button" class="btn btn-secondary" style="font-size:11.5px;padding:4px 10px;display:none;" id="btn-save-as-campaign" onclick="openSaveAsCampaignModal()">
-                                    💾 Salvar como Campanha
-                                </button>
+                                <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                                    <button type="button" class="btn btn-secondary" style="font-size:11.5px;padding:4px 10px;display:none;" id="btn-clear-recipients" onclick="clearAllRecipients()">
+                                        ✕ Desmarcar todos
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" style="font-size:11.5px;padding:4px 10px;display:none;" id="btn-save-as-campaign" onclick="openSaveAsCampaignModal()">
+                                        💾 Salvar como Campanha
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
