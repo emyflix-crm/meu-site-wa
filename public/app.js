@@ -1,6 +1,8 @@
 const API = '';
 let groups = [], contacts = [], campaigns = [];
 let selectedRecipients = [];
+let editingSchedule = null;
+let historyTimer = null;
 let schedules = [], currentTab = 'groups', dashFilter = 'all';
 let userInstances = [], currentQRInstance = null;
 
@@ -87,7 +89,9 @@ function renderTrialBanner() {
 }
 
 // ── Navigation ───────────────────────────────────────────
-function showPage(page) {
+function showPage(page, preserveEdit = false) {
+    clearInterval(historyTimer);
+    if (editingSchedule && !preserveEdit) resetScheduleEditor();
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     const target = document.getElementById('page-' + page);
@@ -97,7 +101,10 @@ function showPage(page) {
     const idx = pages.indexOf(page);
     if (idx >= 0) document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
 
-    if (page === 'history') loadHistory();
+    if (page === 'history') {
+        loadHistory();
+        historyTimer = setInterval(() => { if (!document.hidden) loadHistory(); }, 10000);
+    }
     if (page === 'dashboard') loadSchedules();
     if (page === 'campaigns') initCampaignsPage();
     if (page === 'plans') updateCustomPlan();
@@ -1083,22 +1090,25 @@ async function createSchedule(e) {
     const media_type = mediaItems.length ? mediaItems[0].type : '';
     const extra_medias = mediaItems.slice(1).map(m => ({ url: m.url, type: m.type, text: m.text }));
     const media_texts = mediaItems.map(m => m.text);
-    const media_delay_ms = mediaDelayMode === 'immediate' ? 0 : 5000;
+    const media_delay_ms = mediaDelayMode === 'immediate' ? 0 :
+        Number(document.getElementById('delay-value').value) * (document.getElementById('delay-unit').value === 'minutes' ? 60000 : 1000);
     const frequency = document.getElementById('schedule-frequency').value;
     const schedule_date = document.getElementById('schedule-date')?.value || '';
     const send_delay = 'random';
     const timezone = document.getElementById('schedule-timezone')?.value || 'America/Sao_Paulo';
 
     const btn = document.getElementById('submit-btn');
-    btn.disabled = true; btn.textContent = 'Criando Agendamento...';
+    btn.disabled = true; btn.textContent = editingSchedule ? 'Salvando alterações...' : 'Criando Agendamento...';
     try {
-        const res = await authFetch(`${API}/api/schedules`, {
-            method: 'POST',
-            body: JSON.stringify({ recipients: selectedRecipients, message, media_url, media_type, media_texts, extra_medias, media_delay_ms, time, frequency, schedule_date, send_delay, instance_name, timezone })
+        const res = await authFetch(`${API}/api/schedules${editingSchedule ? '/' + editingSchedule.id : ''}`, {
+            method: editingSchedule ? 'PUT' : 'POST',
+            body: JSON.stringify({ recipients: selectedRecipients, message, media_url, media_type, media_texts, extra_medias, media_delay_ms, time, frequency, schedule_date, send_delay, instance_name, timezone,
+                ...(editingSchedule ? { expected_updated_at: editingSchedule.updated_at || editingSchedule.created_at } : {}) })
         });
         const data = await res.json();
         if (data.success) {
-            showToast(`✅ Agendamento criado! Se o WhatsApp estiver ocupado, ele aguardará na fila.`, 'success');
+            showToast(editingSchedule ? 'Alterações salvas para os próximos envios.' : 'Agendamento criado!', 'success');
+            resetScheduleEditor();
             document.getElementById('schedule-time').value = '';
             document.getElementById('schedule-message').value = '';
             mediaItems = [];
@@ -1109,7 +1119,68 @@ async function createSchedule(e) {
             showToast(data.error || 'Erro ao criar', 'error');
         }
     } catch { showToast('Erro de comunicação', 'error'); }
-    btn.disabled = false; btn.textContent = '⚡ Criar Agendamento';
+    btn.disabled = false; btn.textContent = editingSchedule ? 'Salvar alterações' : 'Criar Agendamento';
+}
+
+function resetScheduleEditor() {
+    editingSchedule = null;
+    document.getElementById('schedule-form').reset();
+    selectedRecipients = [];
+    mediaItems = [];
+    document.querySelector('#page-schedule h1').textContent = 'Criar Agendamento';
+    document.getElementById('submit-btn').textContent = 'Criar Agendamento';
+    document.querySelectorAll('.freq-option').forEach((el, i) => el.classList.toggle('selected', i === 0));
+    document.getElementById('schedule-frequency').value = 'daily';
+    document.getElementById('date-picker-wrap').style.display = 'none';
+    document.getElementById('schedule-timezone').value = 'America/Sao_Paulo';
+    document.querySelectorAll('.tz-btn').forEach((el, i) => el.classList.toggle('active', i === 0));
+    document.getElementById('custom-timezone').style.display = 'none';
+    selectMediaDelay('immediate');
+    updateTZPreview('America/Sao_Paulo');
+    renderMediaList();
+    updateSelectedTags();
+}
+
+async function editSchedule(id) {
+    const response = await authFetch(API + '/api/schedules');
+    if (!response.ok) return showToast('Não foi possível carregar o agendamento.', 'error');
+    const latest = await response.json();
+    const s = latest.find(item => item.id === id);
+    if (!s) return showToast('Agendamento não encontrado.', 'error');
+    if (s.busy) return showToast('Aguarde este agendamento sair da fila e terminar o envio.', 'warning');
+    editingSchedule = JSON.parse(JSON.stringify(s));
+    showPage('schedule', true);
+    document.querySelector('#page-schedule h1').textContent = 'Editar Agendamento';
+    document.getElementById('submit-btn').textContent = 'Salvar alterações';
+    const instance = document.getElementById('schedule-instance');
+    if (![...instance.options].some(o => o.value === s.instance_name))
+        instance.add(new Option(s.instance_name, s.instance_name));
+    instance.value = s.instance_name;
+    selectedRecipients = JSON.parse(JSON.stringify(s.recipients || []));
+    document.getElementById('schedule-message').value = s.message || '';
+    document.getElementById('schedule-time').value = s.time;
+    document.getElementById('schedule-frequency').value = s.frequency;
+    document.querySelectorAll('.freq-option').forEach(el => el.classList.toggle('selected', el.getAttribute('onclick').includes("'" + s.frequency + "'")));
+    document.getElementById('schedule-date').value = s.schedule_date || '';
+    document.getElementById('date-picker-wrap').style.display = s.frequency === 'date' ? 'block' : 'none';
+    document.getElementById('schedule-timezone').value = s.timezone || 'America/Sao_Paulo';
+    document.getElementById('custom-timezone').value = s.timezone || 'America/Sao_Paulo';
+    document.getElementById('custom-timezone').style.display = 'block';
+    document.querySelectorAll('.tz-btn').forEach(el => el.classList.remove('active'));
+    updateTZPreview(s.timezone || 'America/Sao_Paulo');
+    mediaItems = s.media_url ? [{ url: s.media_url, type: s.media_type, text: s.media_texts?.[0] ?? '', name: 'Mídia atual' }] : [];
+    mediaItems.push(...(s.extra_medias || []).map((m, i) => ({ ...m, text: m.text ?? s.media_texts?.[i + 1] ?? '', name: 'Mídia atual' })));
+    mediaDelayMode = s.media_delay_ms ? 'custom' : 'immediate';
+    document.getElementById('delay-value').value = (s.media_delay_ms || 5000) / 1000;
+    document.getElementById('delay-unit').value = 'seconds';
+    selectMediaDelay(mediaDelayMode);
+    renderMediaList();
+    updateSelectedTags();
+    currentTab = 'groups';
+    document.getElementById('recipient-search').value = '';
+    document.querySelectorAll('.rec-tab').forEach((el, i) => el.classList.toggle('active', i === 0));
+    await loadGroupsForInstance(s.instance_name);
+    renderRecipients();
 }
 
 // ── Dashboard & Schedules ─────────────────────────────────
@@ -1155,7 +1226,7 @@ function renderSchedules() {
                 </div>
             </div>
             <div class="schedule-actions">
-                <button class="btn btn-icon" title="Enviar agora" onclick="sendNow(${s.id})">⚡</button>
+                <button class="btn btn-icon" title="Editar" onclick="editSchedule(${s.id})" ${s.busy ? 'disabled' : ''}>✎</button>
                 <button class="btn btn-icon" title="${s.active ? 'Pausar' : 'Ativar'}" onclick="toggleSchedule(${s.id},${s.active})">${s.active ? '⏸' : '▶️'}</button>
                 <button class="btn btn-icon" title="Deletar" onclick="deleteSchedule(${s.id})">🗑️</button>
             </div>
@@ -1163,18 +1234,9 @@ function renderSchedules() {
     }).join('');
 }
 
-async function sendNow(id) {
-    showToast('⚡ Disparando mensagem...', 'success');
-    try {
-        const data = await (await authFetch(`${API}/api/send-now/${id}`, { method: 'POST' })).json();
-        showToast(data.message || '✅ Enviando!', 'success');
-        setTimeout(() => loadHistory(), 3000);
-    } catch { showToast('Erro no envio', 'error'); }
-}
-
 async function toggleSchedule(id, active) {
     const s = schedules.find(s => s.id === id); if (!s) return;
-    const r = await authFetch(`${API}/api/schedules/${id}`, { method: 'PUT', body: JSON.stringify({ ...s, active: !active }) });
+    const r = await authFetch(`${API}/api/schedules/${id}`, { method: 'PUT', body: JSON.stringify({ active: !active }) });
     const data = await r.json();
     if (data.error) {
         showToast(data.error, 'warning');
@@ -1186,7 +1248,8 @@ async function toggleSchedule(id, active) {
 
 async function deleteSchedule(id) {
     if (!confirm('Excluir este agendamento?')) return;
-    await authFetch(`${API}/api/schedules/${id}`, { method: 'DELETE' });
+    const response = await authFetch(`${API}/api/schedules/${id}`, { method: 'DELETE' });
+    if (!response.ok) return showToast((await response.json()).error || 'Não foi possível excluir.', 'warning');
     showToast('🗑️ Removido', 'success');
     loadSchedules();
 }
@@ -1194,30 +1257,95 @@ async function deleteSchedule(id) {
 // ── Histórico ─────────────────────────────────────────────
 async function loadHistory() {
     try {
-        const r = await authFetch(`${API}/api/history`);
-        const history = await r.json();
+        const date = document.getElementById('history-date')?.value || '';
+        const r = await authFetch(`${API}/api/executions?date=${encodeURIComponent(date || new Date().toLocaleDateString('en-CA'))}`);
+        if (!r.ok) throw new Error('Não foi possível carregar o acompanhamento.');
+        const { rows: allRows } = await r.json();
+        const statusFilter = document.getElementById('history-status-filter')?.value || '';
+        const query = (document.getElementById('history-search')?.value || '').toLowerCase();
+        const rows = allRows.filter(run => (!statusFilter || run.status === statusFilter) &&
+            [run.userEmail, run.instance_name, run.time].some(value => String(value || '').toLowerCase().includes(query)));
         const statEl = document.getElementById('stat-sent');
-        if (statEl) {
-            const today = new Date().toDateString();
-            statEl.textContent = history.filter(h => h.status === 'sent' && new Date(h.sent_at).toDateString() === today).length;
+        if (statEl && (!date || date === new Date().toLocaleDateString('en-CA'))) {
+            statEl.textContent = allRows.reduce((n, run) => n + run.accepted, 0);
         }
         const list = document.getElementById('history-list');
         if (!list) return;
-        if (!history.length) {
-            list.innerHTML = '<div class="empty">Nenhum envio registrado ainda</div>';
+        if (!rows.length) {
+            list.innerHTML = '<div class="empty">Nenhuma execução registrada neste dia. Registros anteriores à atualização continuam no histórico administrativo.</div>';
             return;
         }
-        list.innerHTML = history.map(h => `
-            <div class="history-item">
-                <div class="history-status ${h.status}">${h.status === 'sent' ? '✅' : '❌'}</div>
-                <div class="history-info">
-                    <div class="history-group">${h.recipient_type === 'group' ? '👥' : '👤'} ${escHtml(h.recipient_name || '—')}</div>
-                    <div class="history-message">${escHtml((h.message || '').substring(0, 90))}</div>
+        const states = { scheduled: ['Aguardando horário', '#eab308'], paused: ['Pausado', '#94a3b8'],
+            queued: ['Na fila', '#60a5fa'], sending: ['Enviando', '#a78bfa'],
+            finished: ['Processamento finalizado', '#4ade80'], blocked: ['Envio não iniciado', '#eab308'],
+            interrupted: ['Processamento interrompido', '#eab308'],
+            untracked: ['Sem execução nova registrada hoje', '#94a3b8'] };
+        list.innerHTML = rows.map(run => {
+            const [label, stateColor] = states[run.status] || ['A verificar', '#94a3b8'];
+            const color = run.status === 'finished' && run.accepted < run.total ? '#94a3b8' : stateColor;
+            return `<article style="padding:20px;border-bottom:1px solid var(--border)">
+                <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+                    <strong>${escHtml(run.time)} · ${run.total} destinatários</strong>
+                    <span style="color:${color}">${label}</span>
                 </div>
-                <div class="history-time">${formatDate(h.sent_at)}</div>
-            </div>
-        `).join('');
-    } catch {}
+                <p style="color:var(--text2);margin:8px 0">${escHtml(run.instance_name || '')} · ${escHtml(run.timezone || '')}
+                    ${run.userEmail ? ' · ' + escHtml(run.userEmail) : ''}</p>
+                <div>${run.accepted} de ${run.total} envios aceitos pela API</div>
+                <progress max="100" value="${run.progress}" style="width:100%;height:12px;accent-color:${color}"></progress>
+                <small>${run.progress}% processado · Não representa confirmação de entrega.</small>
+                ${CURRENT_USER.role === 'admin' && run.id ? `<div><button type="button" class="btn btn-secondary" data-execution="${escHtml(run.id)}" style="margin-top:10px">Ver diagnóstico</button></div>` : ''}
+            </article>`;
+        }).join('');
+        list.querySelectorAll('[data-execution]').forEach(btn => btn.onclick = () => openExecutionDetails(btn.dataset.execution));
+    } catch (e) {
+        const list = document.getElementById('history-list');
+        if (list) list.textContent = 'Não foi possível atualizar o acompanhamento. Tente novamente.';
+    }
+}
+
+async function openExecutionDetails(id) {
+    if (CURRENT_USER.role !== 'admin') return;
+    const response = await authFetch(API + '/api/executions/' + encodeURIComponent(id));
+    if (!response.ok) return showToast('Não foi possível carregar os detalhes.', 'error');
+    const run = await response.json();
+    const dialog = document.getElementById('execution-details');
+    const content = document.getElementById('execution-details-content');
+    content.replaceChildren();
+    const title = document.createElement('h2');
+    title.textContent = 'Diagnóstico da execução';
+    content.append(title);
+    const summary = document.createElement('p');
+    summary.textContent = [run.snapshot.userEmail, run.snapshot.instance_name, run.started_at, run.finished_at].filter(Boolean).join(' · ');
+    content.append(summary);
+    const message = document.createElement('p');
+    message.textContent = run.snapshot.message || '(Somente mídia)';
+    content.append(message);
+    if (run.diagnostic) {
+        const note = document.createElement('p'); note.textContent = run.diagnostic; content.append(note);
+    }
+    const media = [run.snapshot.media_url, ...(run.snapshot.extra_medias || []).map(m => m.url)].filter(Boolean);
+    for (const url of media) {
+        if (!/^https?:\/\//i.test(url)) continue;
+        const link = document.createElement('a');
+        link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Abrir mídia ';
+        content.append(link);
+    }
+    const search = document.createElement('input');
+    search.placeholder = 'Buscar grupo ou contato'; content.append(search);
+    const results = document.createElement('div'); content.append(results);
+    function render() {
+        results.replaceChildren();
+        for (const recipient of run.snapshot.recipients.filter(r => (r.name || r.id).toLowerCase().includes(search.value.toLowerCase()))) {
+            const result = run.results.find(r => r.recipient_id === recipient.id);
+            const row = document.createElement('div');
+            row.style.cssText = 'padding:12px 0;border-bottom:1px solid var(--border);white-space:pre-wrap';
+            row.textContent = (recipient.name || recipient.id) + '\n' +
+                (result ? JSON.stringify(result, null, 2) : 'Sem tentativa registrada nesta execução.');
+            results.append(row);
+        }
+    }
+    search.oninput = render; render();
+    if (!dialog.open) dialog.showModal();
 }
 
 // ── Instâncias & QR Code ──────────────────────────────────

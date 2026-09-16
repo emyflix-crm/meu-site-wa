@@ -556,12 +556,29 @@
         <!-- 5. HISTÓRICO -->
         <div id="page-history" class="page">
             <div class="page-header">
-                <h1>Histórico de Disparos</h1>
-                <p>Relatório de todas as mensagens automáticas disparadas</p>
+                <h1>Acompanhamento de Envios</h1>
+                <p>Resumo por execução. Os detalhes técnicos são exclusivos do administrador.</p>
+                <input type="date" id="history-date" aria-label="Data do acompanhamento" onchange="loadHistory()" style="margin-top:12px">
+                <select id="history-status-filter" aria-label="Situação" onchange="loadHistory()">
+                    <option value="">Todas as situações</option>
+                    <option value="scheduled">Aguardando horário</option>
+                    <option value="queued">Na fila</option>
+                    <option value="sending">Enviando</option>
+                    <option value="finished">Processamento finalizado</option>
+                    <option value="blocked">Envio não iniciado</option>
+                    <option value="interrupted">Interrompido</option>
+                    <option value="paused">Pausado</option>
+                    <option value="untracked">Sem execução nova hoje</option>
+                </select>
+                <input id="history-search" placeholder="Buscar WhatsApp, horário ou cliente (admin)" aria-label="Buscar no acompanhamento" onchange="loadHistory()">
             </div>
             <div class="card">
                 <div id="history-list"><div class="loading">Carregando histórico...</div></div>
             </div>
+            <dialog id="execution-details" style="margin:auto;max-width:850px;width:90%;max-height:85vh;overflow:auto;padding:24px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:14px">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('execution-details').close()">Fechar</button>
+                <div id="execution-details-content"></div>
+            </dialog>
         </div>
 
         <!-- 5. WHATSAPP CONEXÃO -->

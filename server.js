@@ -174,10 +174,13 @@ function loadDB() {
     }
 }
 function saveDB(data) {
-    return queueDBWrite(() => {
+    // Commit before returning so another handler cannot read an outdated snapshot.
+    try {
         if (data.history && data.history.length > 2000) data.history = data.history.slice(-2000);
-        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-    });
+        fs.writeFileSync(DB_FILE + '.tmp', JSON.stringify(data, null, 2));
+        fs.renameSync(DB_FILE + '.tmp', DB_FILE);
+        return Promise.resolve();
+    } catch (err) { throw err; }
 }
 
 function loadUsers() {
@@ -695,7 +698,7 @@ app.get('/api/schedules', authMiddleware, (req, res) => {
     const schedules = req.user.role === 'admin'
         ? db.schedules
         : db.schedules.filter(s => s.userId === req.user.id || !s.userId);
-    res.json(schedules);
+    res.json(schedules.map(s => ({ ...s, busy: queuedScheduleIds.has(String(s.id)) })));
 });
 
 app.post('/api/schedules', authMiddleware, (req, res) => {
@@ -753,10 +756,14 @@ app.post('/api/schedules', authMiddleware, (req, res) => {
     res.json({ id: schedule.id, success: true });
 });
 
-app.put('/api/schedules/:id', authMiddleware, (req, res) => {
+app.put('/api/schedules/:id', authMiddleware, async (req, res) => {
     const db = loadDB();
     const idx = db.schedules.findIndex(s => s.id == req.params.id && (req.user.role === 'admin' || s.userId === req.user.id));
     if (idx === -1) return res.status(404).json({ error: 'Não encontrado' });
+    if (queuedScheduleIds.has(String(req.params.id)))
+        return res.status(409).json({ error: 'Este agendamento está na fila ou enviando. Aguarde finalizar para editar.' });
+    if (req.body.expected_updated_at !== undefined && req.body.expected_updated_at !== (db.schedules[idx].updated_at || db.schedules[idx].created_at))
+        return res.status(409).json({ error: 'O agendamento mudou. Atualize a página antes de editar.' });
     if (req.body.time && !validTime(req.body.time)) return res.status(400).json({ error: 'Formato HH:MM inválido' });
 
     if (req.body.active === true && db.schedules[idx].active === false && req.user.role !== 'admin') {
@@ -768,8 +775,11 @@ app.put('/api/schedules/:id', authMiddleware, (req, res) => {
         }
     }
 
-    db.schedules[idx] = { ...db.schedules[idx], ...req.body };
-    saveDB(db);
+    try {
+        db.schedules[idx] = validateEdit(db.schedules[idx], req.body, req.user, getUserPlan(req.user), db.schedules);
+    } catch (e) { return res.status(400).json({ error: e.message }); }
+    db.schedules[idx].updated_at = new Date().toISOString();
+    await saveDB(db);
     res.json({ success: true });
 });
 
@@ -777,6 +787,8 @@ app.delete('/api/schedules/:id', authMiddleware, (req, res) => {
     const db = loadDB();
     const schedule = db.schedules.find(s => s.id == req.params.id && (req.user.role === 'admin' || s.userId === req.user.id));
     if (!schedule) return res.status(404).json({ error: 'Não encontrado' });
+    if (queuedScheduleIds.has(String(schedule.id)))
+        return res.status(409).json({ error: 'Aguarde o envio finalizar antes de excluir.' });
 
     if (schedule.media_url) {
         try {
@@ -792,16 +804,35 @@ app.delete('/api/schedules/:id', authMiddleware, (req, res) => {
 });
 
 app.get('/api/history', authMiddleware, (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Histórico detalhado exclusivo do administrador.' });
     const db = loadDB();
     const history = req.user.role === 'admin' ? db.history : db.history.filter(h => h.userId === req.user.id);
     res.json(history.slice(-200).reverse());
 });
 
-app.post('/api/send-now/:id', authMiddleware, async (req, res) => {
-    const schedule = loadDB().schedules.find(s => s.id == req.params.id);
-    if (!schedule) return res.status(404).json({ error: 'Não encontrado' });
-    enqueueSchedule(schedule);
-    res.json({ success: true, message: `Agendamento adicionado à fila para ${schedule.recipients.length} destinatário(s)` });
+app.get('/api/executions', authMiddleware, (req, res) => {
+    const allowed = executions.list().filter(r => req.user.role === 'admin' || r.userId === req.user.id);
+    const date = req.query.date || getTimeInZone(TIMEZONE).date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Data inválida' });
+    const rows = allowed.filter(r => r.date === date).map(r => ({
+        ...summarize(r), ...(req.user.role === 'admin' ? { userId: r.userId, userEmail: r.snapshot.userEmail } : {})
+    }));
+    for (const s of loadDB().schedules) {
+        if (req.user.role !== 'admin' && s.userId !== req.user.id) continue;
+        if (date !== getTimeInZone(s.timezone || TIMEZONE).date || rows.some(r => r.schedule_id === s.id)) continue;
+        rows.push({ id: null, schedule_id: s.id, time: s.time, timezone: s.timezone,
+            instance_name: s.instance_name, total: s.recipients.length, accepted: 0,
+            processed: 0, progress: 0, status: !s.active ? 'paused' :
+                (s.last_sent ? 'untracked' : 'scheduled'),
+            ...(req.user.role === 'admin' ? { userId: s.userId, userEmail: s.userEmail } : {}) });
+    }
+    res.json({ date, rows: rows.reverse(), legacy: true });
+});
+
+app.get('/api/executions/:id', authMiddleware, adminMiddleware, (req, res) => {
+    const run = executions.list().find(r => r.id === req.params.id);
+    if (!run) return res.status(404).json({ error: 'Execução não encontrada' });
+    res.json(run);
 });
 
 app.post('/api/upload', authMiddleware, upload.single('media'), (req, res) => {
@@ -819,6 +850,7 @@ async function sendOne(schedule, recipient) {
     let number = recipient.id.includes('@') ? recipient.id : (isGroup ? `${recipient.id}@g.us` : `${recipient.id}@s.whatsapp.net`);
 
     const allMedias = [];
+    const mediaResults = [];
     if (schedule.media_url) {
         allMedias.push({ url: schedule.media_url, type: schedule.media_type, text: (schedule.media_texts || [])[0] || schedule.message });
     }
@@ -839,9 +871,10 @@ async function sendOne(schedule, recipient) {
         const fileName = isVideo ? 'video.mp4' : ('image' + (ext || '.jpg'));
         const publicMediaUrl = mediaUrl.startsWith('http') ? mediaUrl : `${APP_URL}${mediaUrl.startsWith('/') ? '' : '/'}${mediaUrl}`;
 
-        await axios.post(`${EVOLUTION_API_URL}/message/sendMedia/${inst}`, {
+        const response = await axios.post(`${EVOLUTION_API_URL}/message/sendMedia/${inst}`, {
             number, mediatype: isVideo ? 'video' : 'image', mimetype, caption, media: publicMediaUrl, fileName
         }, { headers: evoHeaders() });
+        mediaResults.push({ type: mediaType, status: 'accepted', message_id: response.data?.key?.id });
     }
 
     try {
@@ -853,7 +886,8 @@ async function sendOne(schedule, recipient) {
                 await sendMediaItem(allMedias[i].url, allMedias[i].type, allMedias[i].text || '');
             }
         } else {
-            await axios.post(`${EVOLUTION_API_URL}/message/sendText/${inst}`, { number, text: schedule.message }, { headers: evoHeaders() });
+            const response = await axios.post(`${EVOLUTION_API_URL}/message/sendText/${inst}`, { number, text: schedule.message }, { headers: evoHeaders() });
+            mediaResults.push({ type: 'text', status: 'accepted', message_id: response.data?.key?.id });
         }
 
         const db = loadDB();
@@ -863,7 +897,7 @@ async function sendOne(schedule, recipient) {
             message: schedule.message, sent_at: new Date().toISOString(), status: 'sent'
         });
         await saveDB(db);
-        return true;
+        return { status: 'accepted', media: mediaResults };
     } catch (e) {
         const db = loadDB();
         db.history.push({
@@ -873,12 +907,18 @@ async function sendOne(schedule, recipient) {
             status: 'error', error: 'Falha no envio via WhatsApp'
         });
         await saveDB(db);
-        return false;
+        // Do not store credentials, Axios config, headers or an unredacted response.
+        return { status: 'error', media: mediaResults, diagnostic: {
+            ...diagnostic(e),
+            failed_item: mediaResults.length + 1
+        } };
     }
 }
 
 const instanceQueues = new Map();
 const queuedScheduleIds = new Set();
+const { createExecutionStore, summarize, validateEdit, diagnostic } = require('./execution-store');
+const executions = createExecutionStore(path.join(path.dirname(DB_FILE), 'executions.json'));
 
 function enqueueSchedule(schedule) {
     const instanceKey = schedule.instance_name || ADMIN_INSTANCE || 'default';
@@ -886,13 +926,20 @@ function enqueueSchedule(schedule) {
 
     if (queuedScheduleIds.has(scheduleKey)) return instanceQueues.get(instanceKey) || Promise.resolve();
     queuedScheduleIds.add(scheduleKey);
+    const snapshot = JSON.parse(JSON.stringify(schedule));
+    let runId;
+    try { runId = executions.create(snapshot, getTimeInZone(snapshot.timezone || TIMEZONE).date); }
+    catch (error) { queuedScheduleIds.delete(scheduleKey); throw error; }
 
     const previous = instanceQueues.get(instanceKey) || Promise.resolve();
     let current;
     current = previous
         .catch(() => {})
-        .then(() => sendToAll(schedule))
-        .catch(err => logger.error('Schedule queue error', { scheduleId: schedule.id, instance: instanceKey, err: err.message }))
+        .then(() => sendToAll(snapshot, runId))
+        .catch(err => {
+            executions.update(runId, { status: 'interrupted', finished_at: new Date().toISOString() });
+            logger.error('Schedule queue error', { scheduleId: schedule.id, instance: instanceKey, err: err.message });
+        })
         .finally(() => {
             queuedScheduleIds.delete(scheduleKey);
             if (instanceQueues.get(instanceKey) === current) instanceQueues.delete(instanceKey);
@@ -902,13 +949,15 @@ function enqueueSchedule(schedule) {
     return current;
 }
 
-async function sendToAll(schedule) {
+async function sendToAll(schedule, runId) {
+    executions.update(runId, { status: 'sending', started_at: new Date().toISOString() });
     const inst = schedule.instance_name || ADMIN_INSTANCE;
     if (inst && EVOLUTION_API_URL) {
         try {
             const statusRes = await axios.get(`${EVOLUTION_API_URL}/instance/connectionState/${inst}`, { headers: evoHeaders() });
             const state = statusRes.data?.instance?.state || statusRes.data?.state;
             if (state !== 'open' && state !== 'connected') {
+                executions.update(runId, { status: 'blocked', finished_at: new Date().toISOString(), diagnostic: 'WhatsApp desconectado' });
                 const db = loadDB();
                 for (const recipient of schedule.recipients) {
                     db.history.push({
@@ -921,7 +970,10 @@ async function sendToAll(schedule) {
                 await saveDB(db);
                 return;
             }
-        } catch (e) {}
+        } catch (e) {
+            executions.update(runId, { status: 'blocked', finished_at: new Date().toISOString(), diagnostic: 'Não foi possível verificar a conexão' });
+            return;
+        }
     }
 
     for (let i = 0; i < schedule.recipients.length; i++) {
@@ -929,7 +981,10 @@ async function sendToAll(schedule) {
             const delay = Math.floor(Math.random() * 30001) + 30000;
             await new Promise(r => setTimeout(r, delay));
         }
-        await sendOne(schedule, schedule.recipients[i]);
+        const result = await sendOne(schedule, schedule.recipients[i]);
+        executions.result(runId, { recipient_id: schedule.recipients[i].id,
+            recipient_name: schedule.recipients[i].name, at: new Date().toISOString(),
+            ...(result || { status: 'error', diagnostic: { reason: 'WhatsApp não configurado' } }) });
     }
 
     const db = loadDB();
@@ -940,6 +995,7 @@ async function sendToAll(schedule) {
         if (db.schedules[idx].frequency === 'once') db.schedules[idx].active = false;
     }
     await saveDB(db);
+    executions.update(runId, { status: 'finished', finished_at: new Date().toISOString() });
 }
 
 // ── CRON ENGINE ───────────────────────────────────────────
@@ -975,6 +1031,8 @@ cron.schedule('* * * * *', () => {
         const tz = schedule.timezone || TIMEZONE;
         const { time: currentTime, date: today } = getTimeInZone(tz);
         if (schedule.time !== currentTime) continue;
+        // A saved execution prevents a repeated run after edits or a process restart.
+        if (executions.list().some(r => r.schedule_id === schedule.id && r.date === today)) continue;
         if (schedule.last_sent && new Date(schedule.last_sent).toDateString() === now.toDateString()) continue;
         const freq = schedule.frequency || 'daily';
         if (freq === 'once' && schedule.last_sent) continue;
