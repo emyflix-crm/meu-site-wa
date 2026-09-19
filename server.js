@@ -254,11 +254,14 @@ app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'landing.html')));
+// O painel administrativo antigo não deve ser exposto como uma página independente.
+// A interface atual vive no app principal, que valida a função do usuário e mantém
+// todas as operações administrativas protegidas também no servidor.
+app.get(['/admin', '/admin.html'], (req, res) => res.redirect(302, '/app.html'));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(morgan('combined', { stream: { write: msg => logger.http(msg.trim()) } }));
 
 app.get('/app.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' } });
 const apiLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 200, message: { error: 'Muitas requisições. Aguarde um momento.' } });
