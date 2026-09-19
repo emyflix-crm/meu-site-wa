@@ -672,36 +672,73 @@ app.get('/api/contacts', authMiddleware, async (req, res) => {
     if (!inst || !EVOLUTION_API_URL) return res.json([]);
 
     const cacheKey = `contacts_${inst}`;
+    const cached = getCache(cacheKey);
     if (!forceRefresh) {
-        const cached = getCache(cacheKey);
         if (cached) return res.json(cached);
     }
 
-    const mapContacts = (arr) => arr
-        .filter(c => (c.remoteJid || c.id || '').includes('@s.whatsapp.net'))
-        .map(c => {
-            const jid = c.remoteJid || c.id || '';
-            const phone = jid.replace('@s.whatsapp.net', '');
-            const name = c.pushName || c.name || c.notify || null;
-            return { id: jid, name: name || phone, hasName: !!name, phone };
-        })
+    const extractArray = (data, key) => Array.isArray(data) ? data : (data?.[key] || data?.data || []);
+    const cleanContactName = (contact, phone) => {
+        const candidates = [
+            contact.contactName, contact.name, contact.verifiedName,
+            contact.businessName, contact.pushName, contact.notify
+        ];
+        for (const candidate of candidates) {
+            const name = String(candidate || '').trim();
+            if (!name || name === phone || name.includes('@s.whatsapp.net')) continue;
+            if (/^[\s_\-–—.]+$/u.test(name)) continue;
+            return name.slice(0, 120);
+        }
+        return null;
+    };
+    const merged = new Map();
+    const mergeContacts = (arr, sourcePriority) => {
+        for (const contact of arr) {
+            const jid = contact.remoteJid || contact.id || '';
+            if (!jid.includes('@s.whatsapp.net')) continue;
+            const phone = jid.replace('@s.whatsapp.net', '').split(':')[0];
+            if (!phone) continue;
+            const canonicalJid = `${phone}@s.whatsapp.net`;
+            const name = cleanContactName(contact, phone);
+            const previous = merged.get(canonicalJid);
+            if (!previous || (name && (!previous.hasName || sourcePriority > previous.sourcePriority))) {
+                merged.set(canonicalJid, {
+                    id: canonicalJid,
+                    name: name || previous?.name || phone,
+                    hasName: Boolean(name || previous?.hasName),
+                    phone,
+                    sourcePriority: name ? sourcePriority : (previous?.sourcePriority || 0)
+                });
+            }
+        }
+    };
+
+    const [contactsResult, chatsResult] = await Promise.allSettled([
+        axios.post(`${EVOLUTION_API_URL}/chat/findContacts/${inst}`, { where: {} }, { headers: evoHeaders(), timeout: 8000 }),
+        axios.post(`${EVOLUTION_API_URL}/chat/findChats/${inst}`, { where: {} }, { headers: evoHeaders(), timeout: 8000 })
+    ]);
+
+    if (contactsResult.status === 'fulfilled') {
+        mergeContacts(extractArray(contactsResult.value.data, 'contacts'), 2);
+    } else {
+        logger.warn('findContacts failed', { instance: inst, err: contactsResult.reason?.message });
+    }
+    if (chatsResult.status === 'fulfilled') {
+        mergeContacts(extractArray(chatsResult.value.data, 'chats'), 1);
+    } else {
+        logger.warn('findChats contacts fallback failed', { instance: inst, err: chatsResult.reason?.message });
+    }
+
+    const result = Array.from(merged.values())
+        .map(({ sourcePriority, ...contact }) => contact)
         .sort((a, b) => (a.hasName && !b.hasName ? -1 : !a.hasName && b.hasName ? 1 : (a.name || '').localeCompare(b.name || '')))
         .slice(0, 500);
 
-    try {
-        const r = await axios.post(`${EVOLUTION_API_URL}/chat/findContacts/${inst}`, { where: {} }, { headers: evoHeaders(), timeout: 8000 });
-        const raw = Array.isArray(r.data) ? r.data : (r.data?.contacts || r.data?.data || []);
-        const result = mapContacts(raw);
-        if (result.length > 0) return res.json(result);
-    } catch (e) {}
-
-    try {
-        const r2 = await axios.post(`${EVOLUTION_API_URL}/chat/findChats/${inst}`, { where: {} }, { headers: evoHeaders(), timeout: 8000 });
-        const chats = Array.isArray(r2.data) ? r2.data : (r2.data?.chats || r2.data?.data || []);
-        return res.json(mapContacts(chats));
-    } catch (e) {
-        res.json([]);
+    if (result.length > 0) {
+        setCache(cacheKey, result, 120000);
+        return res.json(result);
     }
+    res.json(cached || []);
 });
 
 // ── STATUS & QRCODE ───────────────────────────────────────
