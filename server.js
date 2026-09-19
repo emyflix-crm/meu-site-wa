@@ -775,6 +775,20 @@ app.put('/api/schedules/:id', authMiddleware, async (req, res) => {
         }
     }
 
+    // Pausar/ativar é uma alteração de estado, não uma edição do conteúdo.
+    // Agendamentos antigos podem ter destinatários no formato legado; revalidar
+    // todo o registro aqui impediria que eles fossem pausados.
+    const editKeys = Object.keys(req.body).filter(key => key !== 'expected_updated_at');
+    const statusOnly = editKeys.length === 1 && editKeys[0] === 'active';
+    if (statusOnly) {
+        if (typeof req.body.active !== 'boolean')
+            return res.status(400).json({ error: 'Estado do agendamento inválido.' });
+        db.schedules[idx].active = req.body.active;
+        db.schedules[idx].updated_at = new Date().toISOString();
+        await saveDB(db);
+        return res.json({ success: true, active: db.schedules[idx].active });
+    }
+
     try {
         db.schedules[idx] = validateEdit(db.schedules[idx], req.body, req.user, getUserPlan(req.user), db.schedules);
     } catch (e) { return res.status(400).json({ error: e.message }); }
