@@ -311,6 +311,18 @@ async function forceRefreshDest() {
         showToast('Selecione um WhatsApp primeiro!', 'error');
         return;
     }
+    if (currentTab === 'contacts') {
+        showToast('🔄 Sincronizando contatos e conversas...', 'warning');
+        await loadContactsForInstance(instName, true);
+        showToast(`✅ ${contacts.length} contatos sincronizados!`, 'success');
+        return;
+    }
+    if (currentTab === 'campaigns') {
+        showToast('🔄 Atualizando campanhas...', 'warning');
+        await loadCampaigns();
+        showToast(`✅ ${campaigns.length} campanhas atualizadas!`, 'success');
+        return;
+    }
     showToast('🔄 Buscando grupos na Evolution API...', 'warning');
     await loadGroupsForInstance(instName, true);
     showToast(`✅ ${groups.length} grupos sincronizados!`, 'success');
@@ -662,11 +674,11 @@ function switchRecipientTab(tab, btn) {
     }
 }
 
-async function loadContactsForInstance(instName) {
+async function loadContactsForInstance(instName, forceRefresh = false) {
     const container = document.getElementById('recipient-list');
     container.innerHTML = '<div class="loading">Carregando contatos...</div>';
     try {
-        const r = await authFetch(`${API}/api/contacts?instance=${encodeURIComponent(instName)}`);
+        const r = await authFetch(`${API}/api/contacts?instance=${encodeURIComponent(instName)}${forceRefresh ? '&refresh=true' : ''}`);
         contacts = await r.json();
         if (!Array.isArray(contacts)) contacts = [];
         renderRecipients();
