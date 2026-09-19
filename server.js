@@ -162,15 +162,17 @@ function queueDBWrite(fn) {
 function loadDB() {
     const dir = path.dirname(DB_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ schedules: [], history: [], campaigns: [], groupsCache: {} }, null, 2));
+    if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [] }, null, 2));
     try {
         const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         if (!data.campaigns) data.campaigns = [];
         if (!data.groupsCache) data.groupsCache = {};
+        if (!data.crmClients) data.crmClients = [];
+        if (!data.messageTemplates) data.messageTemplates = [];
         return data;
     } catch (e) {
         logger.error('Failed to parse DB file', { err: e.message });
-        return { schedules: [], history: [], campaigns: [], groupsCache: {} };
+        return { schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [] };
     }
 }
 function saveDB(data) {
@@ -355,6 +357,167 @@ app.delete('/api/campaigns/:id', authMiddleware, (req, res) => {
     const idx = (db.campaigns || []).findIndex(c => c.id === req.params.id && (c.userId === req.user.id || req.user.role === 'admin'));
     if (idx === -1) return res.status(404).json({ error: 'Campanha não encontrada' });
     db.campaigns.splice(idx, 1);
+    saveDB(db);
+    res.json({ success: true });
+});
+
+// ── CRM ADMINISTRATIVO & MENSAGENS PRONTAS ───────────────
+const CRM_STATUSES = new Set(['lead', 'trial', 'active', 'expiring', 'overdue', 'cancelled']);
+const CRM_CURRENCIES = new Set(['BRL', 'GBP', 'EUR', 'USD']);
+
+function cleanText(value, maxLength) {
+    return String(value || '').trim().slice(0, maxLength);
+}
+
+function cleanDate(value) {
+    const date = cleanText(value, 10);
+    if (!date) return '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) return null;
+    return date;
+}
+
+function normalizeCrmClient(body, current = {}) {
+    const name = cleanText(body.name, 120);
+    if (!name) return { error: 'Nome do cliente é obrigatório' };
+
+    const phone = String(body.phone || '').replace(/\D/g, '').slice(0, 20);
+    if (phone && phone.length < 7) return { error: 'Informe um WhatsApp válido com código do país' };
+
+    const status = CRM_STATUSES.has(body.status) ? body.status : (current.status || 'lead');
+    const currency = CRM_CURRENCIES.has(body.currency) ? body.currency : (current.currency || 'BRL');
+    const price = body.price === '' || body.price === null || body.price === undefined ? 0 : Number(body.price);
+    if (!Number.isFinite(price) || price < 0 || price > 10000000) return { error: 'Valor mensal inválido' };
+
+    const startDate = cleanDate(body.start_date);
+    const renewalDate = cleanDate(body.renewal_date);
+    if (startDate === null || renewalDate === null) return { error: 'Data inválida' };
+
+    const tags = Array.isArray(body.tags)
+        ? body.tags.map(tag => cleanText(tag, 30)).filter(Boolean).slice(0, 20)
+        : cleanText(body.tags, 500).split(',').map(tag => cleanText(tag, 30)).filter(Boolean).slice(0, 20);
+
+    return {
+        value: {
+            name,
+            phone,
+            status,
+            plan: cleanText(body.plan, 120),
+            price: Math.round(price * 100) / 100,
+            currency,
+            start_date: startDate,
+            renewal_date: renewalDate,
+            notes: cleanText(body.notes, 2000),
+            tags
+        }
+    };
+}
+
+function normalizeMessageTemplate(body, current = {}) {
+    const name = cleanText(body.name, 100);
+    const message = cleanText(body.message, 5000);
+    if (!name) return { error: 'Nome do modelo é obrigatório' };
+    if (!message) return { error: 'Mensagem do modelo é obrigatória' };
+
+    const mediaType = ['image', 'video'].includes(body.media_type) ? body.media_type : '';
+    const mediaUrl = cleanText(body.media_url, 1000);
+    return {
+        value: {
+            name,
+            category: cleanText(body.category, 50) || current.category || 'Geral',
+            message,
+            favorite: Boolean(body.favorite),
+            media_url: mediaUrl,
+            media_type: mediaUrl ? mediaType : ''
+        }
+    };
+}
+
+app.get('/api/admin/crm/clients', authMiddleware, adminMiddleware, (req, res) => {
+    const db = loadDB();
+    const clients = (db.crmClients || [])
+        .filter(client => client.owner_id === req.user.id)
+        .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+    res.json(clients);
+});
+
+app.post('/api/admin/crm/clients', authMiddleware, adminMiddleware, (req, res) => {
+    const normalized = normalizeCrmClient(req.body);
+    if (normalized.error) return res.status(400).json({ error: normalized.error });
+    const db = loadDB();
+    const now = new Date().toISOString();
+    const client = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        owner_id: req.user.id,
+        ...normalized.value,
+        created_at: now,
+        updated_at: now
+    };
+    db.crmClients.push(client);
+    saveDB(db);
+    res.json({ success: true, client });
+});
+
+app.put('/api/admin/crm/clients/:id', authMiddleware, adminMiddleware, (req, res) => {
+    const db = loadDB();
+    const index = (db.crmClients || []).findIndex(client => client.id === req.params.id && client.owner_id === req.user.id);
+    if (index === -1) return res.status(404).json({ error: 'Cliente do CRM não encontrado' });
+    const normalized = normalizeCrmClient(req.body, db.crmClients[index]);
+    if (normalized.error) return res.status(400).json({ error: normalized.error });
+    db.crmClients[index] = { ...db.crmClients[index], ...normalized.value, updated_at: new Date().toISOString() };
+    saveDB(db);
+    res.json({ success: true, client: db.crmClients[index] });
+});
+
+app.delete('/api/admin/crm/clients/:id', authMiddleware, adminMiddleware, (req, res) => {
+    const db = loadDB();
+    const index = (db.crmClients || []).findIndex(client => client.id === req.params.id && client.owner_id === req.user.id);
+    if (index === -1) return res.status(404).json({ error: 'Cliente do CRM não encontrado' });
+    db.crmClients.splice(index, 1);
+    saveDB(db);
+    res.json({ success: true });
+});
+
+app.get('/api/admin/crm/templates', authMiddleware, adminMiddleware, (req, res) => {
+    const db = loadDB();
+    const templates = (db.messageTemplates || [])
+        .filter(template => template.owner_id === req.user.id)
+        .sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+    res.json(templates);
+});
+
+app.post('/api/admin/crm/templates', authMiddleware, adminMiddleware, (req, res) => {
+    const normalized = normalizeMessageTemplate(req.body);
+    if (normalized.error) return res.status(400).json({ error: normalized.error });
+    const db = loadDB();
+    const now = new Date().toISOString();
+    const template = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        owner_id: req.user.id,
+        ...normalized.value,
+        created_at: now,
+        updated_at: now
+    };
+    db.messageTemplates.push(template);
+    saveDB(db);
+    res.json({ success: true, template });
+});
+
+app.put('/api/admin/crm/templates/:id', authMiddleware, adminMiddleware, (req, res) => {
+    const db = loadDB();
+    const index = (db.messageTemplates || []).findIndex(template => template.id === req.params.id && template.owner_id === req.user.id);
+    if (index === -1) return res.status(404).json({ error: 'Modelo não encontrado' });
+    const normalized = normalizeMessageTemplate(req.body, db.messageTemplates[index]);
+    if (normalized.error) return res.status(400).json({ error: normalized.error });
+    db.messageTemplates[index] = { ...db.messageTemplates[index], ...normalized.value, updated_at: new Date().toISOString() };
+    saveDB(db);
+    res.json({ success: true, template: db.messageTemplates[index] });
+});
+
+app.delete('/api/admin/crm/templates/:id', authMiddleware, adminMiddleware, (req, res) => {
+    const db = loadDB();
+    const index = (db.messageTemplates || []).findIndex(template => template.id === req.params.id && template.owner_id === req.user.id);
+    if (index === -1) return res.status(404).json({ error: 'Modelo não encontrado' });
+    db.messageTemplates.splice(index, 1);
     saveDB(db);
     res.json({ success: true });
 });
