@@ -259,3 +259,43 @@ test('CRM appears only for admins and messages integrate with scheduling', () =>
     assert.match(client, /schedule-message/);
     assert.match(client, /https:\/\/wa\.me\//);
 });
+
+test('contacts merge Evolution contacts and chats, prefer saved names and remove duplicates', async () => {
+    const routes = {};
+    let cached;
+    const context = {
+        app: { get(url, ...handlers) { routes[url] = handlers; } },
+        authMiddleware() {}, ADMIN_INSTANCE: 'admin-wa', EVOLUTION_API_URL: 'http://evolution',
+        loadUsers: () => [], evoHeaders: () => ({}),
+        getCache: () => null, setCache: (_key, value) => { cached = value; },
+        logger: { warn() {} },
+        axios: { post: async url => {
+            if (url.includes('findContacts')) return { data: [
+                { remoteJid: '447700100001@s.whatsapp.net', pushName: '', contactName: 'Maria Salva' },
+                { remoteJid: '447700100002@s.whatsapp.net', pushName: '—' }
+            ] };
+            return { data: [
+                { remoteJid: '447700100001@s.whatsapp.net', name: 'Maria da conversa' },
+                { remoteJid: '447700100002@s.whatsapp.net', pushName: 'João Conversa' }
+            ] };
+        } }
+    };
+    vm.runInNewContext(server.slice(server.indexOf("app.get('/api/contacts'"), server.indexOf('// ── STATUS & QRCODE')), context);
+    let response;
+    await routes['/api/contacts'].at(-1)(
+        { query: { instance: 'admin-wa', refresh: 'true' }, user: { id: 'admin', role: 'admin' } },
+        { json(value) { response = value; } }
+    );
+    assert.equal(response.length, 2);
+    assert.equal(response.find(c => c.phone === '447700100001').name, 'Maria Salva');
+    assert.equal(response.find(c => c.phone === '447700100002').name, 'João Conversa');
+    assert.deepEqual(cached, response);
+});
+
+test('destination refresh follows the selected tab and forces contact reload', () => {
+    const client = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+    const refreshBlock = client.slice(client.indexOf('async function forceRefreshDest'), client.indexOf('// ── CAMPANHAS'));
+    assert.match(refreshBlock, /currentTab === 'contacts'/);
+    assert.match(refreshBlock, /loadContactsForInstance\(instName, true\)/);
+    assert.match(client, /refresh=true/);
+});
