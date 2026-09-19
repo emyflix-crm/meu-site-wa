@@ -5,6 +5,7 @@ let editingSchedule = null;
 let historyTimer = null;
 let schedules = [], currentTab = 'groups', dashFilter = 'all';
 let userInstances = [], currentQRInstance = null;
+let crmClients = [], crmTemplates = [], templatePickerClientId = null;
 
 // ── Auth & Plan Quota ─────────────────────────────────────
 const TOKEN = localStorage.getItem('wa_token');
@@ -43,6 +44,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (CURRENT_USER.role === 'admin') {
         const adminNav = document.getElementById('admin-nav');
         if (adminNav) adminNav.style.display = '';
+        const crmNav = document.getElementById('crm-nav');
+        if (crmNav) crmNav.style.display = '';
+        const scheduleTemplateButton = document.getElementById('schedule-template-button');
+        if (scheduleTemplateButton) scheduleTemplateButton.style.display = '';
     }
 
     renderTrialBanner();
@@ -90,6 +95,10 @@ function renderTrialBanner() {
 
 // ── Navigation ───────────────────────────────────────────
 function showPage(page, preserveEdit = false) {
+    if ((page === 'admin' || page === 'crm') && CURRENT_USER.role !== 'admin') {
+        showToast('Acesso exclusivo do administrador.', 'error');
+        return;
+    }
     clearInterval(historyTimer);
     if (editingSchedule && !preserveEdit) resetScheduleEditor();
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -97,7 +106,7 @@ function showPage(page, preserveEdit = false) {
     const target = document.getElementById('page-' + page);
     if (target) target.classList.add('active');
 
-    const pages = ['dashboard', 'schedule', 'campaigns', 'history', 'connect', 'plans', 'admin'];
+    const pages = ['dashboard', 'schedule', 'campaigns', 'history', 'connect', 'plans', 'crm', 'admin'];
     const idx = pages.indexOf(page);
     if (idx >= 0) document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
 
@@ -113,6 +122,7 @@ function showPage(page, preserveEdit = false) {
         updateLivePreview();
     }
     if (page === 'connect') loadInstancesList();
+    if (page === 'crm') loadCrmDashboard();
     if (page === 'admin') {
         loadAdminUsers();
         loadAdminHistory();
@@ -1453,6 +1463,291 @@ async function addInstance() {
     } else {
         showToast(data.error || 'Erro', 'error');
     }
+}
+
+// ── CRM privado do administrador ─────────────────────────
+const CRM_STATUS_META = {
+    lead: { label: 'Novo contato', color: '#3b82f6', icon: '🔵' },
+    trial: { label: 'Em teste', color: '#a855f7', icon: '🟣' },
+    active: { label: 'Cliente ativo', color: '#22c55e', icon: '🟢' },
+    expiring: { label: 'Vence em breve', color: '#f59e0b', icon: '🟠' },
+    overdue: { label: 'Pagamento pendente', color: '#ef4444', icon: '🔴' },
+    cancelled: { label: 'Cancelado', color: '#64748b', icon: '⚫' }
+};
+
+async function loadCrmDashboard() {
+    if (CURRENT_USER.role !== 'admin') return;
+    try {
+        const [clientsRes, templatesRes] = await Promise.all([
+            authFetch(`${API}/api/admin/crm/clients`),
+            authFetch(`${API}/api/admin/crm/templates`)
+        ]);
+        if (!clientsRes.ok || !templatesRes.ok) throw new Error('Não foi possível carregar o CRM');
+        crmClients = await clientsRes.json();
+        crmTemplates = await templatesRes.json();
+        renderCrmStats();
+        renderCrmClients();
+        renderCrmTemplates();
+    } catch (error) {
+        const clientsEl = document.getElementById('crm-clients-list');
+        const templatesEl = document.getElementById('crm-templates-list');
+        if (clientsEl) clientsEl.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><p>Não foi possível carregar os clientes.</p></div>';
+        if (templatesEl) templatesEl.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><p>Não foi possível carregar as mensagens.</p></div>';
+    }
+}
+
+function crmDateValue(value) {
+    if (!value) return '';
+    const date = new Date(value + 'T12:00:00');
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('pt-BR');
+}
+
+function crmMoney(client) {
+    const symbols = { BRL: 'R$', GBP: '£', EUR: '€', USD: '$' };
+    return `${symbols[client.currency] || client.currency || 'R$'} ${Number(client.price || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function renderCrmStats() {
+    const el = document.getElementById('crm-stats');
+    if (!el) return;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const inSevenDays = new Date(today); inSevenDays.setDate(inSevenDays.getDate() + 7);
+    const expiring = crmClients.filter(client => {
+        if (!client.renewal_date || client.status === 'cancelled') return false;
+        const date = new Date(client.renewal_date + 'T00:00:00');
+        return date >= today && date <= inSevenDays;
+    }).length;
+    const cards = [
+        ['👥', crmClients.length, 'Total de clientes', '#60a5fa'],
+        ['🟢', crmClients.filter(c => c.status === 'active').length, 'Ativos', '#22c55e'],
+        ['🟣', crmClients.filter(c => c.status === 'trial').length, 'Em teste', '#a855f7'],
+        ['⏳', expiring, 'Vencem em 7 dias', '#f59e0b'],
+        ['🔴', crmClients.filter(c => c.status === 'overdue').length, 'Pendentes', '#ef4444']
+    ];
+    el.innerHTML = cards.map(card => `<div class="card" style="padding:16px;text-align:center;"><div style="font-size:20px;">${card[0]}</div><div style="font-size:25px;font-weight:800;color:${card[3]};margin:4px 0;">${card[1]}</div><div style="font-size:11px;color:var(--text3);">${card[2]}</div></div>`).join('');
+}
+
+function renderCrmClients() {
+    const el = document.getElementById('crm-clients-list');
+    if (!el) return;
+    const search = (document.getElementById('crm-search')?.value || '').trim().toLowerCase();
+    const status = document.getElementById('crm-status-filter')?.value || '';
+    const filtered = crmClients.filter(client => {
+        const haystack = [client.name, client.phone, client.plan, ...(client.tags || [])].join(' ').toLowerCase();
+        return (!search || haystack.includes(search)) && (!status || client.status === status);
+    });
+    if (!filtered.length) {
+        el.innerHTML = '<div class="empty-state"><div class="empty-icon">👥</div><p>Nenhum cliente encontrado.</p><small>Cadastre o primeiro cliente para começar seu CRM.</small></div>';
+        return;
+    }
+    el.innerHTML = filtered.map(client => {
+        const meta = CRM_STATUS_META[client.status] || CRM_STATUS_META.lead;
+        const tags = (client.tags || []).slice(0, 4).map(tag => `<span style="font-size:10px;padding:3px 7px;border-radius:12px;background:var(--bg3);color:var(--text2);">${escHtml(tag)}</span>`).join('');
+        return `<div style="padding:16px 18px;border-bottom:1px solid var(--border);">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+                <div style="min-width:0;">
+                    <div style="font-weight:750;font-size:15px;">${escHtml(client.name)}</div>
+                    <div style="font-size:12px;color:var(--text2);margin-top:4px;">${client.phone ? '📱 +' + escHtml(client.phone) : '📱 Sem WhatsApp'}${client.plan ? ' &nbsp;•&nbsp; 📺 ' + escHtml(client.plan) : ''}</div>
+                </div>
+                <span style="font-size:10.5px;white-space:nowrap;border:1px solid ${meta.color};color:${meta.color};padding:4px 8px;border-radius:12px;">${meta.icon} ${meta.label}</span>
+            </div>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--text3);">
+                <span>💰 ${crmMoney(client)}/mês</span>
+                <span>📅 Vencimento: ${crmDateValue(client.renewal_date) || 'não definido'}</span>
+            </div>
+            ${tags ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:9px;">${tags}</div>` : ''}
+            <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px;">
+                <button class="btn btn-primary" style="font-size:11px;padding:5px 9px;" onclick="openClientTemplatePicker('${client.id}')" ${client.phone ? '' : 'disabled title="Cadastre o WhatsApp do cliente"'}>💬 Mensagem</button>
+                <button class="btn btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="openCrmClientModal('${client.id}')">✏️ Editar</button>
+                <button class="btn btn-danger" style="font-size:11px;padding:5px 9px;" onclick="deleteCrmClient('${client.id}')">🗑️</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function renderCrmTemplates() {
+    const el = document.getElementById('crm-templates-list');
+    if (!el) return;
+    if (!crmTemplates.length) {
+        el.innerHTML = '<div class="empty-state"><div class="empty-icon">📝</div><p>Nenhuma mensagem pronta.</p><small>Crie modelos para vendas, testes, cobrança e renovação.</small></div>';
+        return;
+    }
+    el.innerHTML = crmTemplates.map(template => `<div style="padding:15px 18px;border-bottom:1px solid var(--border);">
+        <div style="display:flex;justify-content:space-between;gap:10px;"><div><strong>${template.favorite ? '⭐ ' : ''}${escHtml(template.name)}</strong><div style="font-size:10.5px;color:var(--primary);margin-top:3px;">${escHtml(template.category || 'Geral')}</div></div><div style="display:flex;gap:5px;"><button class="btn btn-secondary" style="font-size:10px;padding:4px 7px;" onclick="openCrmTemplateModal('${template.id}')">✏️</button><button class="btn btn-danger" style="font-size:10px;padding:4px 7px;" onclick="deleteCrmTemplate('${template.id}')">🗑️</button></div></div>
+        <p style="font-size:12px;color:var(--text2);white-space:pre-wrap;margin-top:9px;line-height:1.45;max-height:64px;overflow:hidden;">${escHtml(template.message)}</p>
+    </div>`).join('');
+}
+
+function openCrmClientModal(id = '') {
+    const client = crmClients.find(item => item.id === id);
+    document.getElementById('crm-client-id').value = client?.id || '';
+    document.getElementById('crm-client-modal-title').textContent = client ? '✏️ Editar cliente do CRM' : '➕ Novo cliente do CRM';
+    document.getElementById('crm-client-name').value = client?.name || '';
+    document.getElementById('crm-client-phone').value = client?.phone || '';
+    document.getElementById('crm-client-status').value = client?.status || 'lead';
+    document.getElementById('crm-client-plan').value = client?.plan || '';
+    document.getElementById('crm-client-price').value = client?.price || '';
+    document.getElementById('crm-client-currency').value = client?.currency || 'BRL';
+    document.getElementById('crm-client-start').value = client?.start_date || '';
+    document.getElementById('crm-client-renewal').value = client?.renewal_date || '';
+    document.getElementById('crm-client-tags').value = (client?.tags || []).join(', ');
+    document.getElementById('crm-client-notes').value = client?.notes || '';
+    document.getElementById('modal-crm-client').style.display = 'flex';
+}
+
+function closeCrmClientModal() { document.getElementById('modal-crm-client').style.display = 'none'; }
+
+async function saveCrmClient() {
+    const id = document.getElementById('crm-client-id').value;
+    const payload = {
+        name: document.getElementById('crm-client-name').value,
+        phone: document.getElementById('crm-client-phone').value,
+        status: document.getElementById('crm-client-status').value,
+        plan: document.getElementById('crm-client-plan').value,
+        price: document.getElementById('crm-client-price').value,
+        currency: document.getElementById('crm-client-currency').value,
+        start_date: document.getElementById('crm-client-start').value,
+        renewal_date: document.getElementById('crm-client-renewal').value,
+        tags: document.getElementById('crm-client-tags').value,
+        notes: document.getElementById('crm-client-notes').value
+    };
+    const button = document.getElementById('crm-client-save');
+    button.disabled = true;
+    try {
+        const response = await authFetch(`${API}/api/admin/crm/clients${id ? '/' + id : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
+        const data = await response.json();
+        if (!response.ok) return showToast(data.error || 'Não foi possível salvar o cliente.', 'error');
+        closeCrmClientModal();
+        showToast(id ? '✅ Cliente atualizado.' : '✅ Cliente adicionado ao CRM.', 'success');
+        await loadCrmDashboard();
+    } catch { showToast('Erro de comunicação ao salvar o cliente.', 'error'); }
+    finally { button.disabled = false; }
+}
+
+async function deleteCrmClient(id) {
+    const client = crmClients.find(item => item.id === id);
+    if (!client || !confirm(`Excluir ${client.name} do CRM? Esta ação não afeta a conta ou os agendamentos do cliente.`)) return;
+    const response = await authFetch(`${API}/api/admin/crm/clients/${id}`, { method: 'DELETE' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return showToast(data.error || 'Não foi possível excluir.', 'error');
+    showToast('Cliente removido do CRM.', 'success');
+    await loadCrmDashboard();
+}
+
+function openCrmTemplateModal(id = '') {
+    const template = crmTemplates.find(item => item.id === id);
+    document.getElementById('crm-template-id').value = template?.id || '';
+    document.getElementById('crm-template-modal-title').textContent = template ? '✏️ Editar mensagem pronta' : '📝 Nova mensagem pronta';
+    document.getElementById('crm-template-name').value = template?.name || '';
+    document.getElementById('crm-template-category').value = template?.category || '';
+    document.getElementById('crm-template-message').value = template?.message || '';
+    document.getElementById('crm-template-favorite').checked = Boolean(template?.favorite);
+    document.getElementById('modal-crm-template').style.display = 'flex';
+}
+
+function closeCrmTemplateModal() { document.getElementById('modal-crm-template').style.display = 'none'; }
+
+async function saveCrmTemplate() {
+    const id = document.getElementById('crm-template-id').value;
+    const payload = {
+        name: document.getElementById('crm-template-name').value,
+        category: document.getElementById('crm-template-category').value,
+        message: document.getElementById('crm-template-message').value,
+        favorite: document.getElementById('crm-template-favorite').checked
+    };
+    const button = document.getElementById('crm-template-save');
+    button.disabled = true;
+    try {
+        const response = await authFetch(`${API}/api/admin/crm/templates${id ? '/' + id : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
+        const data = await response.json();
+        if (!response.ok) return showToast(data.error || 'Não foi possível salvar a mensagem.', 'error');
+        closeCrmTemplateModal();
+        showToast(id ? '✅ Mensagem atualizada.' : '✅ Mensagem pronta criada.', 'success');
+        await loadCrmDashboard();
+    } catch { showToast('Erro de comunicação ao salvar a mensagem.', 'error'); }
+    finally { button.disabled = false; }
+}
+
+async function deleteCrmTemplate(id) {
+    const template = crmTemplates.find(item => item.id === id);
+    if (!template || !confirm(`Excluir a mensagem pronta “${template.name}”?`)) return;
+    const response = await authFetch(`${API}/api/admin/crm/templates/${id}`, { method: 'DELETE' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return showToast(data.error || 'Não foi possível excluir.', 'error');
+    showToast('Mensagem pronta removida.', 'success');
+    await loadCrmDashboard();
+}
+
+function fillCrmTemplate(template, client) {
+    const values = {
+        nome: client?.name || '{nome}',
+        plano: client?.plan || '{plano}',
+        valor: client ? crmMoney(client) : '{valor}',
+        vencimento: client ? (crmDateValue(client.renewal_date) || 'data a combinar') : '{vencimento}'
+    };
+    return template.message.replace(/\{(nome|plano|valor|vencimento)\}/gi, (_, key) => values[key.toLowerCase()]);
+}
+
+async function ensureCrmTemplates() {
+    if (crmTemplates.length) return true;
+    try {
+        const response = await authFetch(`${API}/api/admin/crm/templates`);
+        if (!response.ok) return false;
+        crmTemplates = await response.json();
+        return true;
+    } catch { return false; }
+}
+
+async function openScheduleTemplatePicker() {
+    if (CURRENT_USER.role !== 'admin') return showToast('As mensagens prontas estão em teste somente para o administrador.', 'warning');
+    templatePickerClientId = null;
+    await ensureCrmTemplates();
+    document.getElementById('schedule-template-search').value = '';
+    renderScheduleTemplatePicker();
+    document.getElementById('modal-schedule-template').style.display = 'flex';
+}
+
+async function openClientTemplatePicker(clientId) {
+    templatePickerClientId = clientId;
+    await ensureCrmTemplates();
+    document.getElementById('schedule-template-search').value = '';
+    renderScheduleTemplatePicker();
+    document.getElementById('modal-schedule-template').style.display = 'flex';
+}
+
+function closeScheduleTemplatePicker() {
+    document.getElementById('modal-schedule-template').style.display = 'none';
+    templatePickerClientId = null;
+}
+
+function renderScheduleTemplatePicker() {
+    const el = document.getElementById('schedule-template-list');
+    if (!el) return;
+    const search = (document.getElementById('schedule-template-search')?.value || '').toLowerCase();
+    const filtered = crmTemplates.filter(template => [template.name, template.category, template.message].join(' ').toLowerCase().includes(search));
+    if (!filtered.length) {
+        el.innerHTML = '<div class="empty-state"><div class="empty-icon">📝</div><p>Nenhuma mensagem pronta encontrada.</p></div>';
+        return;
+    }
+    el.innerHTML = filtered.map(template => `<button type="button" onclick="useCrmTemplate('${template.id}')" style="width:100%;text-align:left;background:var(--bg3);border:1px solid var(--border);border-radius:11px;padding:13px;margin-bottom:8px;color:var(--text);cursor:pointer;"><strong>${template.favorite ? '⭐ ' : ''}${escHtml(template.name)}</strong><span style="font-size:10px;color:var(--primary);margin-left:6px;">${escHtml(template.category || 'Geral')}</span><div style="font-size:11.5px;color:var(--text2);white-space:pre-wrap;margin-top:6px;max-height:48px;overflow:hidden;">${escHtml(template.message)}</div></button>`).join('');
+}
+
+function useCrmTemplate(templateId) {
+    const template = crmTemplates.find(item => item.id === templateId);
+    if (!template) return;
+    if (templatePickerClientId) {
+        const client = crmClients.find(item => item.id === templatePickerClientId);
+        if (!client?.phone) return showToast('Cadastre o WhatsApp do cliente.', 'error');
+        const message = fillCrmTemplate(template, client);
+        window.open(`https://wa.me/${client.phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+        closeScheduleTemplatePicker();
+        return;
+    }
+    const messageField = document.getElementById('schedule-message');
+    if (messageField) messageField.value = template.message;
+    updateLivePreview();
+    closeScheduleTemplatePicker();
+    showToast('Mensagem copiada. Revise as variáveis antes de agendar.', 'success');
 }
 
 // ── Admin Panel Completo & Gestão de Limites ─────────────
