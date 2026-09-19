@@ -1291,33 +1291,35 @@ async function loadHistory() {
         if (statEl && (!date || date === new Date().toLocaleDateString('en-CA'))) {
             statEl.textContent = allRows.reduce((n, run) => n + run.accepted, 0);
         }
+        const setHistoryStat = (id, value) => { const node = document.getElementById(id); if (node) node.textContent = value; };
+        setHistoryStat('history-stat-scheduled', allRows.filter(run => run.status === 'scheduled' || run.status === 'queued').length);
+        setHistoryStat('history-stat-running', allRows.filter(run => run.status === 'sending').length);
+        setHistoryStat('history-stat-finished', allRows.filter(run => run.status === 'finished').length);
+        setHistoryStat('history-stat-errors', allRows.filter(run => ['blocked', 'interrupted', 'untracked'].includes(run.status)).length);
         const list = document.getElementById('history-list');
         if (!list) return;
         if (!rows.length) {
             list.innerHTML = '<div class="empty">Nenhuma execução registrada neste dia. Registros anteriores à atualização continuam no histórico administrativo.</div>';
             return;
         }
-        const states = { scheduled: ['Aguardando horário', '#eab308'], paused: ['Pausado', '#94a3b8'],
-            queued: ['Na fila', '#60a5fa'], sending: ['Enviando', '#a78bfa'],
-            finished: ['Processamento finalizado', '#4ade80'], blocked: ['Envio não iniciado', '#eab308'],
-            interrupted: ['Processamento interrompido', '#eab308'],
-            untracked: ['Sem execução nova registrada hoje', '#94a3b8'] };
-        list.innerHTML = rows.map(run => {
-            const [label, stateColor] = states[run.status] || ['A verificar', '#94a3b8'];
-            const color = run.status === 'finished' && run.accepted < run.total ? '#94a3b8' : stateColor;
-            return `<article style="padding:20px;border-bottom:1px solid var(--border)">
-                <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
-                    <strong>${escHtml(run.time)} · ${run.total} destinatários</strong>
-                    <span style="color:${color}">${label}</span>
-                </div>
-                <p style="color:var(--text2);margin:8px 0">${escHtml(run.instance_name || '')} · ${escHtml(run.timezone || '')}
-                    ${run.userEmail ? ' · ' + escHtml(run.userEmail) : ''}</p>
-                <div>${run.accepted} de ${run.total} envios aceitos pela API</div>
-                <progress max="100" value="${run.progress}" style="width:100%;height:12px;accent-color:${color}"></progress>
-                <small>${run.progress}% processado · Não representa confirmação de entrega.</small>
-                ${CURRENT_USER.role === 'admin' && run.id ? `<div><button type="button" class="btn btn-secondary" data-execution="${escHtml(run.id)}" style="margin-top:10px">Ver diagnóstico</button></div>` : ''}
-            </article>`;
-        }).join('');
+        const states = { scheduled: ['Aguardando', 'waiting'], paused: ['Pausado', 'paused'], queued: ['Na fila', 'running'],
+            sending: ['Em andamento', 'running'], finished: ['Concluído', 'success'], blocked: ['Não iniciado', 'danger'],
+            interrupted: ['Interrompido', 'danger'], untracked: ['Sem execução', 'paused'] };
+        list.innerHTML = `<div class="responsive-table"><table class="app-table history-table"><thead><tr>
+            <th>Horário</th><th>Conta</th><th>Instância</th><th>Destinatários</th><th>Progresso</th><th>Status</th><th>Ações</th>
+        </tr></thead><tbody>${rows.map(run => {
+            const [label, tone] = states[run.status] || ['A verificar', 'paused'];
+            const progress = Number(run.progress || 0);
+            return `<tr>
+                <td data-label="Horário"><strong>${escHtml(run.time)}</strong><small>${escHtml(run.timezone || '')}</small></td>
+                <td data-label="Conta"><strong>${escHtml(run.userEmail ? run.userEmail.split('@')[0] : 'Campanha')}</strong><small>${escHtml(run.userEmail || '')}</small></td>
+                <td data-label="Instância"><strong>${escHtml(run.instance_name || '—')}</strong></td>
+                <td data-label="Destinatários"><strong>${run.total}</strong><small>${run.accepted} aceitos pela API</small></td>
+                <td data-label="Progresso"><div class="progress-label"><span>${progress}%</span></div><div class="progress-track"><span class="progress-fill ${tone}" style="width:${Math.max(0, Math.min(100, progress))}%"></span></div></td>
+                <td data-label="Status"><span class="status-pill ${tone}"><i></i>${label}</span></td>
+                <td data-label="Ações">${CURRENT_USER.role === 'admin' && run.id ? `<button type="button" class="table-action" data-execution="${escHtml(run.id)}" title="Ver diagnóstico">•••</button>` : '<span class="muted">—</span>'}</td>
+            </tr>`;
+        }).join('')}</tbody></table></div>`;
         list.querySelectorAll('[data-execution]').forEach(btn => btn.onclick = () => openExecutionDetails(btn.dataset.execution));
     } catch (e) {
         const list = document.getElementById('history-list');
@@ -1787,78 +1789,74 @@ async function loadAdminUsers() {
             filterSel.value = currentVal;
         }
 
-        el.innerHTML = adminUsersList.map(u => {
-            const isAdmin = u.role === 'admin';
-            const isActive = u.active !== false;
-            const planKey = u.plan || 'trial';
-            const planBadgeClass = {
-                trial: 'badge-yellow',
-                start: 'badge-blue',
-                pro: 'badge-purple',
-                diamond: 'badge-green',
-                unlimited: 'badge-green'
-            }[planKey] || 'badge-blue';
-
-            const planTitle = u.plan_name || (
-                planKey === 'trial' ? '⚡ Trial (7 dias)' :
-                planKey === 'start' ? '🥉 Start' :
-                planKey === 'pro' ? '🚀 Pro' :
-                planKey === 'diamond' ? '💎 Diamante' :
-                '👑 Admin Ilimitado'
-            );
-
-            const expires = u.plan_expires ? new Date(u.plan_expires).toLocaleDateString('pt-BR') : 'Sem expiração';
-
-            return `
-            <div class="admin-user-card" style="border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin-bottom:12px;background:var(--bg3);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-                <div style="display:flex;align-items:center;gap:12px;min-width:240px;">
-                    <div style="width:42px;height:42px;border-radius:50%;background:var(--bg2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">
-                        ${isAdmin ? '👑' : '👤'}
-                    </div>
-                    <div>
-                        <div style="font-size:15px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px;">
-                            <span>${escHtml(u.name)}</span>
-                            <span class="badge ${isActive ? 'badge-green' : 'badge-yellow'}" style="font-size:10px;">
-                                ${isActive ? '● Ativo' : '● Bloqueado'}
-                            </span>
-                            <span class="badge ${planBadgeClass}" style="font-size:10px;">${planTitle}</span>
-                        </div>
-                        <div style="font-size:12px;color:var(--text3);margin-top:2px;">
-                            ✉️ ${escHtml(u.email)} • 📱 Instância: <code>${escHtml(u.instance_name || 'N/A')}</code>
-                        </div>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:11.5px;">
-                            <span style="background:var(--bg2);border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:var(--text2);">
-                                📱 <b>${u.max_instances}</b> WA(s)
-                            </span>
-                            <span style="background:var(--bg2);border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:var(--text2);">
-                                📅 <b>${u.max_schedules}</b> Agendamentos
-                            </span>
-                            <span style="background:var(--bg2);border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:var(--primary);font-weight:600;">
-                                👥 Limite: <b>${u.max_recipients}</b> grupos
-                            </span>
-                            <span style="background:var(--bg2);border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:var(--text3);">
-                                ⏰ Expira: ${expires}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                    <button type="button" class="btn btn-primary" style="font-size:12px;padding:6px 14px;" onclick="openAdminEditModal('${u.id}')">
-                        ✏️ Editar & Limites
-                    </button>
-                    ${!isAdmin ? `
-                    <button type="button" class="btn btn-danger" style="font-size:12px;padding:6px 12px;" onclick="deleteAdminUser('${u.id}', '${(u.name||'').replace(/'/g,"\\'")}')">
-                        🗑️ Excluir
-                    </button>
-                    ` : `
-                    <span style="font-size:11px;color:var(--text3);font-style:italic;">Admin Principal</span>
-                    `}
-                </div>
-            </div>`;
-        }).join('');
+        renderAdminUsers();
     } catch (e) {
         el.innerHTML = `<div class="empty" style="color:#f87171">Erro ao carregar clientes: ${e.message}</div>`;
     }
+}
+
+function renderAdminUsers() {
+    const el = document.getElementById('admin-users-list');
+    if (!el || !Array.isArray(adminUsersList)) return;
+    const query = (document.getElementById('admin-users-search')?.value || '').trim().toLowerCase();
+    const status = document.getElementById('admin-users-status')?.value || '';
+    const filtered = adminUsersList.filter(u => {
+        const connected = u.connection_status === 'connected';
+        const matchesStatus = !status || (status === 'connected' ? connected : !connected);
+        const haystack = [u.name, u.email, u.instance_name].join(' ').toLowerCase();
+        return matchesStatus && (!query || haystack.includes(query));
+    });
+    const setStat = (id, value) => { const node = document.getElementById(id); if (node) node.textContent = value; };
+    setStat('admin-stat-total', adminUsersList.length);
+    setStat('admin-stat-connected', adminUsersList.filter(u => u.connection_status === 'connected').length);
+    setStat('admin-stat-disconnected', adminUsersList.filter(u => u.connection_status !== 'connected').length);
+    setStat('admin-stat-trial', adminUsersList.filter(u => (u.plan || 'trial') === 'trial').length);
+    if (!filtered.length) {
+        el.innerHTML = '<div class="empty">Nenhum cliente encontrado com esses filtros.</div>';
+        return;
+    }
+    el.innerHTML = `<div class="responsive-table"><table class="app-table admin-table"><thead><tr>
+        <th>Cliente</th><th>Instância WhatsApp</th><th>Plano</th><th>Uso / Limites</th><th>Expiração</th><th>Status</th><th>Ações</th>
+    </tr></thead><tbody>${filtered.map(u => {
+            const isAdmin = u.role === 'admin';
+            const planKey = u.plan || 'trial';
+            const planTitle = u.plan_name || (
+                planKey === 'trial' ? 'Trial 7 dias' : planKey === 'start' ? 'Start' :
+                planKey === 'pro' ? 'Plano Pro' : planKey === 'diamond' ? 'Diamante' : 'Admin'
+            );
+            const expires = u.plan_expires ? new Date(u.plan_expires).toLocaleDateString('pt-BR') : 'Sem expiração';
+            const connected = u.connection_status === 'connected';
+            return `<tr>
+                <td data-label="Cliente"><div class="client-cell"><span class="client-avatar ${isAdmin ? 'admin' : ''}">${isAdmin ? 'A' : escHtml((u.name || 'C')[0].toUpperCase())}</span><div><strong>${escHtml(u.name)}</strong><small>${escHtml(u.email)}</small></div></div></td>
+                <td data-label="Instância"><div class="instance-cell"><span class="wa-icon ${connected ? 'connected' : 'disconnected'}">◉</span><div><strong>${escHtml(u.instance_name || 'N/A')}</strong><small>EmyFlix WA</small></div></div></td>
+                <td data-label="Plano"><span class="plan-pill ${escHtml(planKey)}">${escHtml(planTitle)}</span></td>
+                <td data-label="Uso / Limites"><div class="limit-grid"><span><b>${u.max_schedules}</b> agendamentos</span><span><b>${u.max_recipients}</b> grupos</span></div></td>
+                <td data-label="Expiração"><span>${expires}</span></td>
+                <td data-label="Status"><span class="status-pill ${connected ? 'success' : 'danger'}"><i></i>${connected ? 'Conectado' : 'Desconectado'}</span></td>
+                <td data-label="Ações"><button type="button" class="table-action" data-admin-menu="${escHtml(u.id)}" title="Abrir ações">•••</button></td>
+            </tr>`;
+        }).join('')}</tbody></table></div>`;
+    el.querySelectorAll('[data-admin-menu]').forEach(button => {
+        button.onclick = event => openAdminActions(event, button.dataset.adminMenu);
+    });
+}
+
+function openAdminActions(event, userId) {
+    event.stopPropagation();
+    document.querySelectorAll('.admin-actions-popover').forEach(node => node.remove());
+    const user = adminUsersList.find(item => item.id === userId);
+    if (!user) return;
+    const menu = document.createElement('div');
+    menu.className = 'admin-actions-popover';
+    menu.innerHTML = `<button type="button" data-edit>Editar e limites</button>${user.role !== 'admin' ? '<button type="button" class="danger" data-delete>Excluir cliente</button>' : ''}`;
+    document.body.appendChild(menu);
+    const rect = event.currentTarget.getBoundingClientRect();
+    menu.style.top = `${Math.min(window.innerHeight - menu.offsetHeight - 12, rect.bottom + 6)}px`;
+    menu.style.left = `${Math.max(12, rect.right - menu.offsetWidth)}px`;
+    menu.querySelector('[data-edit]').onclick = () => { menu.remove(); openAdminEditModal(userId); };
+    const deleteButton = menu.querySelector('[data-delete]');
+    if (deleteButton) deleteButton.onclick = () => { menu.remove(); deleteAdminUser(userId, user.name || 'cliente'); };
+    setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
 }
 
 function openAdminEditModal(userId) {

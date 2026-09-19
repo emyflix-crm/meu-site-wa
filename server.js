@@ -1264,18 +1264,32 @@ cron.schedule('* * * * *', () => {
 }, { timezone: 'UTC' });
 
 // ── ADMIN COMPLETO: GESTÃO TOTAL DE CLIENTES E LIMITES ────
-app.get('/admin/users', authMiddleware, adminMiddleware, (req, res) => {
-    const users = loadUsers().map(({ password, ...u }) => {
+app.get('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
+    const users = await Promise.all(loadUsers().map(async ({ password, ...u }) => {
         const planInfo = getUserPlan(u);
+        const instanceName = u.instance_name || u.instances?.[0]?.name || null;
+        let connection_status = 'disconnected';
+        if (instanceName && EVOLUTION_API_URL) {
+            try {
+                const statusRes = await axios.get(`${EVOLUTION_API_URL}/instance/connectionState/${encodeURIComponent(instanceName)}`, {
+                    headers: evoHeaders(), timeout: 5000
+                });
+                const state = statusRes.data?.instance?.state || statusRes.data?.state;
+                connection_status = (state === 'open' || state === 'connected') ? 'connected' : 'disconnected';
+            } catch (_) {
+                connection_status = 'disconnected';
+            }
+        }
         return {
             ...u,
+            connection_status,
             plan_name: planInfo.name,
             max_instances: u.role === 'admin' ? 999 : (u.max_instances || planInfo.max_instances || 1),
             max_schedules: u.role === 'admin' ? 9999 : (u.max_schedules || planInfo.max_schedules || 2),
             max_recipients: u.role === 'admin' ? 99999 : (u.max_recipients || planInfo.max_recipients || 50),
             instances: u.instances || []
         };
-    });
+    }));
     res.json(users);
 });
 

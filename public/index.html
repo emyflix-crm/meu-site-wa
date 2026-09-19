@@ -559,11 +559,18 @@
 
         <!-- 5. HISTÓRICO -->
         <div id="page-history" class="page">
-            <div class="page-header">
-                <h1>Acompanhamento de Envios</h1>
-                <p>Resumo por execução. Os detalhes técnicos são exclusivos do administrador.</p>
-                <input type="date" id="history-date" aria-label="Data do acompanhamento" onchange="loadHistory()" style="margin-top:12px">
-                <select id="history-status-filter" aria-label="Situação" onchange="loadHistory()">
+            <div class="page-header page-header-row">
+                <div><h1>Acompanhamento de Envios</h1><p>Resumo por execução. Os detalhes técnicos são exclusivos do administrador.</p></div>
+            </div>
+            <div class="summary-grid history-summary">
+                <div class="summary-card"><span class="summary-icon neutral">◷</span><div><span>Agendados</span><strong id="history-stat-scheduled">0</strong><small>Envios programados</small></div></div>
+                <div class="summary-card"><span class="summary-icon info">▶</span><div><span>Em andamento</span><strong id="history-stat-running">0</strong><small>Campanhas em execução</small></div></div>
+                <div class="summary-card"><span class="summary-icon success">✓</span><div><span>Concluídos</span><strong id="history-stat-finished">0</strong><small>Processamentos finalizados</small></div></div>
+                <div class="summary-card"><span class="summary-icon danger">×</span><div><span>Com problema</span><strong id="history-stat-errors">0</strong><small>Requerem atenção</small></div></div>
+            </div>
+            <div class="filter-bar">
+                <label><span>Data</span><input type="date" id="history-date" aria-label="Data do acompanhamento" onchange="loadHistory()"></label>
+                <label><span>Status</span><select id="history-status-filter" aria-label="Situação" onchange="loadHistory()">
                     <option value="">Todas as situações</option>
                     <option value="scheduled">Aguardando horário</option>
                     <option value="queued">Na fila</option>
@@ -573,10 +580,11 @@
                     <option value="interrupted">Interrompido</option>
                     <option value="paused">Pausado</option>
                     <option value="untracked">Sem execução nova hoje</option>
-                </select>
-                <input id="history-search" placeholder="Buscar WhatsApp, horário ou cliente (admin)" aria-label="Buscar no acompanhamento" onchange="loadHistory()">
+                </select></label>
+                <label class="filter-search"><span>Buscar</span><input id="history-search" placeholder="Campanha, conta ou e-mail..." aria-label="Buscar no acompanhamento" oninput="loadHistory()"></label>
             </div>
-            <div class="card">
+            <div class="card data-card">
+                <div class="card-header"><div><h2>Histórico de Envios</h2><p class="card-subtitle">Acompanhe o processamento de cada campanha.</p></div></div>
                 <div id="history-list"><div class="loading">Carregando histórico...</div></div>
             </div>
             <dialog id="execution-details" style="margin:auto;max-width:850px;width:90%;max-height:85vh;overflow:auto;padding:24px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:14px">
@@ -690,14 +698,23 @@
                     <p>Controle total: edite planos, altere limites de grupos e agendamentos ou exclua clientes</p>
                 </div>
                 <div style="display:flex;gap:8px;">
-                    <button class="btn btn-primary" onclick="openAdminCreateModal()">➕ Novo Cliente</button>
-                    <button class="btn btn-secondary" onclick="loadAdminUsers()">🔄 Atualizar</button>
+                    <button class="btn btn-primary" onclick="openAdminCreateModal()">＋ Novo Cliente</button>
+                    <button class="btn btn-secondary" onclick="loadAdminUsers()">↻ Atualizar</button>
                 </div>
             </div>
-
-            <div class="card" style="margin-bottom:20px">
+            <div class="summary-grid admin-summary">
+                <div class="summary-card"><span class="summary-icon neutral">◎</span><div><span>Clientes</span><strong id="admin-stat-total">0</strong><small>Total registrado</small></div></div>
+                <div class="summary-card"><span class="summary-icon success wa-mark">◉</span><div><span>Conectados</span><strong id="admin-stat-connected">0</strong><small>Instâncias online</small></div></div>
+                <div class="summary-card"><span class="summary-icon danger wa-mark">◉</span><div><span>Desconectados</span><strong id="admin-stat-disconnected">0</strong><small>Instâncias offline</small></div></div>
+                <div class="summary-card"><span class="summary-icon info">◇</span><div><span>Em teste</span><strong id="admin-stat-trial">0</strong><small>Clientes no trial</small></div></div>
+            </div>
+            <div class="filter-bar admin-filter-bar">
+                <label class="filter-search"><span>Buscar cliente</span><input id="admin-users-search" placeholder="Nome, instância ou e-mail..." oninput="renderAdminUsers()"></label>
+                <label><span>Status</span><select id="admin-users-status" onchange="renderAdminUsers()"><option value="">Todos os status</option><option value="connected">Conectados</option><option value="disconnected">Desconectados</option></select></label>
+            </div>
+            <div class="card data-card" style="margin-bottom:20px">
                 <div class="card-header">
-                    <h2>👥 Clientes Registrados</h2>
+                    <div><h2>Clientes Registrados</h2><p class="card-subtitle">Gerencie clientes, planos, limites e conexões em um só lugar.</p></div>
                 </div>
                 <div id="admin-users-list"><div class="loading">Carregando usuários...</div></div>
             </div>
