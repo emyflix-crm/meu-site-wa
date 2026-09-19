@@ -87,6 +87,15 @@ test('PUT persists changes and GET reads them back', async () => {
     const result = await h.call('get /api/schedules');
     assert.equal(result.data[0].time, '14:25'); assert.equal(h.db().schedules[0].message, 'saved');
 });
+test('pause only changes status and supports legacy recipient records', async () => {
+    const h = routeHarness();
+    h.db().schedules[0].recipients = [{ id: 'legacy-group' }];
+    const result = await h.call('put /api/schedules/:id', { active: false });
+    assert.equal(result.status, 200);
+    assert.equal(result.data.active, false);
+    assert.equal(h.db().schedules[0].active, false);
+    assert.deepEqual(h.db().schedules[0].recipients, [{ id: 'legacy-group' }]);
+});
 test('busy edit/delete rejected by server; foreign owner cannot edit', async () => {
     const h = routeHarness();
     h.busy.add('1');
