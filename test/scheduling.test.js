@@ -195,3 +195,67 @@ test('editor with mocked DOM loads values and submits PUT with modified payload'
     assert.equal(body.media_url, 'https://example.com/replaced.jpg');
     assert.equal(context.editingSchedule, null);
 });
+
+function crmRouteHarness() {
+    const routes = {};
+    let db = { crmClients: [], messageTemplates: [] };
+    const context = {
+        app: Object.fromEntries(['get', 'post', 'put', 'delete'].map(method =>
+            [method, (url, ...handlers) => { routes[method + ' ' + url] = handlers; }])),
+        authMiddleware() {}, adminMiddleware() {},
+        loadDB: () => structuredClone(db),
+        saveDB: next => { db = structuredClone(next); }
+    };
+    vm.runInNewContext(server.slice(server.indexOf('const CRM_STATUSES'), server.indexOf('// ── FAST GROUPS')), context);
+    return {
+        routes,
+        db: () => db,
+        async call(key, body = {}, id = '') {
+            let status = 200, data;
+            const res = { status(n) { status = n; return this; }, json(v) { data = v; } };
+            await routes[key].at(-1)({ user: { id: 'admin', role: 'admin' }, body, params: { id } }, res);
+            return { status, data };
+        }
+    };
+}
+
+test('admin CRM creates, edits and removes clients without touching schedules', async () => {
+    const h = crmRouteHarness();
+    const created = await h.call('post /api/admin/crm/clients', {
+        name: 'Hannah', phone: '+44 7404 200049', status: 'trial', plan: 'Premium', price: '25.50', currency: 'GBP', renewal_date: '2026-09-30', tags: 'Londres, IPTV'
+    });
+    assert.equal(created.status, 200);
+    assert.equal(created.data.client.phone, '447404200049');
+    assert.equal(created.data.client.owner_id, 'admin');
+    const id = created.data.client.id;
+    const updated = await h.call('put /api/admin/crm/clients/:id', { ...created.data.client, status: 'active', price: 30 }, id);
+    assert.equal(updated.data.client.status, 'active');
+    assert.equal(updated.data.client.price, 30);
+    assert.equal((await h.call('get /api/admin/crm/clients')).data.length, 1);
+    assert.equal((await h.call('delete /api/admin/crm/clients/:id', {}, id)).status, 200);
+    assert.equal(h.db().crmClients.length, 0);
+    assert.equal(h.db().schedules, undefined);
+});
+
+test('admin-only message templates validate content and persist variables', async () => {
+    const h = crmRouteHarness();
+    assert.equal((await h.call('post /api/admin/crm/templates', { name: '', message: '' })).status, 400);
+    const created = await h.call('post /api/admin/crm/templates', {
+        name: 'Renovação', category: 'Cobrança', message: 'Olá {nome}, seu plano {plano} vence em {vencimento}.', favorite: true
+    });
+    assert.equal(created.status, 200);
+    assert(created.data.template.message.includes('{nome}'));
+    assert.equal(h.routes['get /api/admin/crm/templates'][1].name, 'adminMiddleware');
+    assert.equal(h.routes['post /api/admin/crm/clients'][1].name, 'adminMiddleware');
+    assert.equal((await h.call('get /api/admin/crm/templates')).data[0].favorite, true);
+});
+
+test('CRM appears only for admins and messages integrate with scheduling', () => {
+    const html = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
+    const client = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+    assert.match(html, /id="crm-nav" style="display:none"/);
+    assert.match(client, /page === 'crm'\) && CURRENT_USER\.role !== 'admin'/);
+    assert.match(html, /openScheduleTemplatePicker\(\)/);
+    assert.match(client, /schedule-message/);
+    assert.match(client, /https:\/\/wa\.me\//);
+});
