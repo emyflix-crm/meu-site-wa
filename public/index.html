@@ -34,6 +34,7 @@
             <a class="nav-item" onclick="showPage('history')"><span>📋</span> Histórico</a>
             <a class="nav-item" onclick="showPage('connect')" id="connect-nav"><span>📱</span> WhatsApp</a>
             <a class="nav-item" onclick="showPage('plans')"><span>💎</span> Planos e Preços</a>
+            <a class="nav-item" onclick="showPage('crm')" id="crm-nav" style="display:none"><span>🗂️</span> CRM & Modelos</a>
             <a class="nav-item" onclick="showPage('admin')" id="admin-nav" style="display:none"><span>🛡️</span> Painel Admin</a>
         </nav>
 
@@ -195,7 +196,10 @@
 
                         <!-- Mensagem Principal -->
                         <div class="form-group">
-                            <label>💬 Mensagem</label>
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;">
+                                <label style="margin:0;">💬 Mensagem</label>
+                                <button type="button" id="schedule-template-button" class="btn btn-secondary" style="display:none;font-size:11.5px;padding:5px 10px;" onclick="openScheduleTemplatePicker()">📝 Usar mensagem pronta</button>
+                            </div>
                             <textarea id="schedule-message" rows="5" placeholder="Digite sua mensagem... Dica: use *negrito*, _itálico_ e quebras de linha!" oninput="updateLivePreview()"></textarea>
                         </div>
 
@@ -629,7 +633,56 @@
             </div>
         </div>
 
-        <!-- 6. PAINEL ADMIN COM GESTÃO TOTAL DE CLIENTES E LIMITES -->
+        <!-- CRM PRIVADO DO ADMINISTRADOR -->
+        <div id="page-crm" class="page">
+            <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                <div>
+                    <h1>🗂️ CRM de Clientes</h1>
+                    <p>Organize clientes, vencimentos e mensagens prontas em um só lugar — acesso exclusivo do administrador</p>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-secondary" onclick="openCrmTemplateModal()">📝 Nova mensagem</button>
+                    <button class="btn btn-primary" onclick="openCrmClientModal()">➕ Novo cliente</button>
+                </div>
+            </div>
+
+            <div id="crm-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px;"></div>
+
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px;align-items:start;">
+                <div class="card">
+                    <div class="card-header" style="gap:10px;flex-wrap:wrap;">
+                        <h2>👥 Meus clientes</h2>
+                        <button class="btn btn-secondary" style="font-size:11px;" onclick="loadCrmDashboard()">🔄 Atualizar</button>
+                    </div>
+                    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;">
+                        <input id="crm-search" type="text" placeholder="🔍 Buscar nome, WhatsApp, plano..." oninput="renderCrmClients()" style="flex:1;min-width:190px;">
+                        <select id="crm-status-filter" onchange="renderCrmClients()" style="min-width:150px;">
+                            <option value="">Todos os status</option>
+                            <option value="lead">Novo contato</option>
+                            <option value="trial">Em teste</option>
+                            <option value="active">Cliente ativo</option>
+                            <option value="expiring">Vence em breve</option>
+                            <option value="overdue">Pagamento pendente</option>
+                            <option value="cancelled">Cancelado</option>
+                        </select>
+                    </div>
+                    <div id="crm-clients-list"><div class="loading">Carregando clientes...</div></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header" style="gap:10px;flex-wrap:wrap;">
+                        <div>
+                            <h2>📝 Mensagens prontas</h2>
+                            <p style="font-size:11px;color:var(--text3);margin-top:3px;">Use no WhatsApp ou dentro de um agendamento</p>
+                        </div>
+                        <button class="btn btn-primary" style="font-size:11px;" onclick="openCrmTemplateModal()">＋ Criar</button>
+                    </div>
+                    <div id="crm-templates-list"><div class="loading">Carregando modelos...</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PAINEL ADMIN COM GESTÃO TOTAL DE CLIENTES E LIMITES -->
         <div id="page-admin" class="page">
             <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
                 <div>
@@ -665,6 +718,54 @@
             </div>
         </div>
 
+    </div>
+
+    <!-- MODAL CRM: CLIENTE -->
+    <div id="modal-crm-client" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1001;align-items:center;justify-content:center;">
+        <div style="background:var(--bg2);border-radius:18px;max-width:640px;width:94%;padding:26px;border:1px solid var(--border);max-height:92vh;overflow-y:auto;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                <h3 id="crm-client-modal-title">➕ Novo cliente do CRM</h3>
+                <button onclick="closeCrmClientModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button>
+            </div>
+            <input type="hidden" id="crm-client-id">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;">
+                <div class="form-group"><label>Nome *</label><input id="crm-client-name" type="text" placeholder="Ex: Hannah"></div>
+                <div class="form-group"><label>WhatsApp com país</label><input id="crm-client-phone" type="tel" placeholder="Ex: 447404200049"></div>
+                <div class="form-group"><label>Status</label><select id="crm-client-status"><option value="lead">🔵 Novo contato</option><option value="trial">🟣 Em teste</option><option value="active">🟢 Cliente ativo</option><option value="expiring">🟠 Vence em breve</option><option value="overdue">🔴 Pagamento pendente</option><option value="cancelled">⚫ Cancelado</option></select></div>
+                <div class="form-group"><label>Plano / produto</label><input id="crm-client-plan" type="text" placeholder="Ex: Canais Premium"></div>
+                <div class="form-group"><label>Valor mensal</label><input id="crm-client-price" type="number" min="0" step="0.01" placeholder="0,00"></div>
+                <div class="form-group"><label>Moeda</label><select id="crm-client-currency"><option value="BRL">R$ Real</option><option value="GBP">£ Libra</option><option value="EUR">€ Euro</option><option value="USD">$ Dólar</option></select></div>
+                <div class="form-group"><label>Data de início</label><input id="crm-client-start" type="date"></div>
+                <div class="form-group"><label>Próximo vencimento</label><input id="crm-client-renewal" type="date"></div>
+            </div>
+            <div class="form-group"><label>Etiquetas</label><input id="crm-client-tags" type="text" placeholder="Ex: Londres, indicação, IPTV"></div>
+            <div class="form-group"><label>Observações</label><textarea id="crm-client-notes" rows="4" placeholder="Anote preferências, aparelho, histórico de contato..."></textarea></div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;"><button class="btn btn-secondary" onclick="closeCrmClientModal()">Cancelar</button><button id="crm-client-save" class="btn btn-primary" onclick="saveCrmClient()">✓ Salvar cliente</button></div>
+        </div>
+    </div>
+
+    <!-- MODAL CRM: MENSAGEM PRONTA -->
+    <div id="modal-crm-template" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1001;align-items:center;justify-content:center;">
+        <div style="background:var(--bg2);border-radius:18px;max-width:620px;width:94%;padding:26px;border:1px solid var(--border);max-height:92vh;overflow-y:auto;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;"><h3 id="crm-template-modal-title">📝 Nova mensagem pronta</h3><button onclick="closeCrmTemplateModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button></div>
+            <input type="hidden" id="crm-template-id">
+            <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;">
+                <div class="form-group"><label>Nome do modelo *</label><input id="crm-template-name" type="text" placeholder="Ex: Renovação próxima"></div>
+                <div class="form-group"><label>Categoria</label><input id="crm-template-category" type="text" placeholder="Ex: Renovação"></div>
+            </div>
+            <div class="form-group"><label>Mensagem *</label><textarea id="crm-template-message" rows="8" placeholder="Olá {nome}! Seu plano {plano} vence em {vencimento}."></textarea><p style="font-size:11px;color:var(--text3);margin-top:6px;">Variáveis: <strong>{nome}</strong>, <strong>{plano}</strong>, <strong>{valor}</strong> e <strong>{vencimento}</strong>.</p></div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:18px;"><input id="crm-template-favorite" type="checkbox" style="width:auto;"> ⭐ Destacar como favorito</label>
+            <div style="display:flex;justify-content:flex-end;gap:8px;"><button class="btn btn-secondary" onclick="closeCrmTemplateModal()">Cancelar</button><button id="crm-template-save" class="btn btn-primary" onclick="saveCrmTemplate()">✓ Salvar mensagem</button></div>
+        </div>
+    </div>
+
+    <!-- MODAL: ESCOLHER MENSAGEM PRONTA NO AGENDAMENTO -->
+    <div id="modal-schedule-template" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1001;align-items:center;justify-content:center;">
+        <div style="background:var(--bg2);border-radius:18px;max-width:650px;width:94%;padding:24px;border:1px solid var(--border);max-height:88vh;overflow-y:auto;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;"><div><h3>📝 Escolher mensagem pronta</h3><p style="font-size:11px;color:var(--text3);margin-top:4px;">A mensagem será copiada para o agendamento e você poderá revisá-la.</p></div><button onclick="closeScheduleTemplatePicker()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button></div>
+            <input id="schedule-template-search" type="text" placeholder="🔍 Buscar mensagem..." oninput="renderScheduleTemplatePicker()" style="margin-bottom:12px;">
+            <div id="schedule-template-list"></div>
+        </div>
     </div>
 
     <!-- MODAL ADMIN: EDITAR CLIENTE & LIMITES CUSTOMIZADOS -->
