@@ -6,6 +6,7 @@ let historyTimer = null;
 let schedules = [], currentTab = 'groups', dashFilter = 'all';
 let userInstances = [], currentQRInstance = null;
 let crmClients = [], crmTemplates = [], templatePickerClientId = null;
+let crmContacts = [], crmVisibleContacts = [], crmExpiryFilter = 'today', crmClientPage = 1;
 
 // ── Auth & Plan Quota ─────────────────────────────────────
 const TOKEN = localStorage.getItem('wa_token');
@@ -1499,14 +1500,62 @@ async function loadCrmDashboard() {
         if (!clientsRes.ok || !templatesRes.ok) throw new Error('Não foi possível carregar o CRM');
         crmClients = await clientsRes.json();
         crmTemplates = await templatesRes.json();
+        await setupCrmInstanceSelector();
         renderCrmStats();
         renderCrmClients();
+        renderCrmExpiry();
+        renderCrmChart();
         renderCrmTemplates();
+        if (!document.getElementById('crm-client-start')?.value) resetCrmClientForm();
     } catch (error) {
         const clientsEl = document.getElementById('crm-clients-list');
         const templatesEl = document.getElementById('crm-templates-list');
         if (clientsEl) clientsEl.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><p>Não foi possível carregar os clientes.</p></div>';
         if (templatesEl) templatesEl.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><p>Não foi possível carregar as mensagens.</p></div>';
+    }
+}
+
+async function setupCrmInstanceSelector() {
+    const select = document.getElementById('crm-instance-select');
+    if (!select) return;
+    if (!userInstances.length) {
+        try {
+            const response = await authFetch(`${API}/api/instances`);
+            const data = await response.json();
+            userInstances = data.instances || [];
+        } catch {}
+    }
+    if (!userInstances.length && CURRENT_USER.role === 'admin') {
+        userInstances = [{ name: CURRENT_USER.instance_name || 'teste-nascimento', label: 'Principal (Admin)', connected: true }];
+    }
+    const previous = select.value || localStorage.getItem('crm_active_instance') || CURRENT_USER.instance_name || userInstances[0]?.name || '';
+    select.innerHTML = userInstances.map(instance => `<option value="${escHtml(instance.name)}">${escHtml(instance.label || instance.name)} ${instance.connected ? '🟢' : '🔴'}</option>`).join('');
+    if (previous) select.value = previous;
+    if (!select.value && select.options.length) select.selectedIndex = 0;
+    onCrmInstanceChange(false);
+}
+
+function getCrmInstance() {
+    return document.getElementById('crm-instance-select')?.value || CURRENT_USER.instance_name || '';
+}
+
+function onCrmInstanceChange(clearContact = true) {
+    const name = getCrmInstance();
+    if (name) localStorage.setItem('crm_active_instance', name);
+    const instance = userInstances.find(item => item.name === name);
+    const status = document.getElementById('crm-instance-status');
+    if (status) {
+        status.textContent = instance?.connected === false ? '● Desconectado' : '● Conectado';
+        status.style.color = instance?.connected === false ? '#ef4444' : 'var(--primary)';
+    }
+    const hidden = document.getElementById('crm-client-instance');
+    if (hidden && (!hidden.value || clearContact)) hidden.value = name;
+    if (clearContact) {
+        crmContacts = [];
+        const phone = document.getElementById('crm-client-phone');
+        if (phone) phone.value = '';
+        const jid = document.getElementById('crm-client-contact-jid');
+        if (jid) jid.value = '';
     }
 }
 
@@ -1525,20 +1574,88 @@ function renderCrmStats() {
     const el = document.getElementById('crm-stats');
     if (!el) return;
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const inSevenDays = new Date(today); inSevenDays.setDate(inSevenDays.getDate() + 7);
+    const inFiveDays = new Date(today); inFiveDays.setDate(inFiveDays.getDate() + 5);
     const expiring = crmClients.filter(client => {
         if (!client.renewal_date || client.status === 'cancelled') return false;
         const date = new Date(client.renewal_date + 'T00:00:00');
-        return date >= today && date <= inSevenDays;
+        return date >= today && date <= inFiveDays;
     }).length;
+    const monthlyGbp = crmClients
+        .filter(client => client.status === 'active' && client.currency === 'GBP')
+        .reduce((sum, client) => sum + Number(client.price || 0), 0);
     const cards = [
-        ['👥', crmClients.length, 'Total de clientes', '#60a5fa'],
+        ['👥', crmClients.length, 'Total de clientes', '#a78bfa'],
         ['🟢', crmClients.filter(c => c.status === 'active').length, 'Ativos', '#22c55e'],
-        ['🟣', crmClients.filter(c => c.status === 'trial').length, 'Em teste', '#a855f7'],
-        ['⏳', expiring, 'Vencem em 7 dias', '#f59e0b'],
-        ['🔴', crmClients.filter(c => c.status === 'overdue').length, 'Pendentes', '#ef4444']
+        ['⏳', expiring, 'Vencem em 5 dias', '#f59e0b'],
+        ['📈', '£ ' + monthlyGbp.toLocaleString('pt-BR', { minimumFractionDigits: 2 }), 'Receita mensal', '#38bdf8']
     ];
-    el.innerHTML = cards.map(card => `<div class="card" style="padding:16px;text-align:center;"><div style="font-size:20px;">${card[0]}</div><div style="font-size:25px;font-weight:800;color:${card[3]};margin:4px 0;">${card[1]}</div><div style="font-size:11px;color:var(--text3);">${card[2]}</div></div>`).join('');
+    el.innerHTML = cards.map(card => `<div class="crm-stat"><div style="font-size:20px">${card[0]}</div><strong style="color:${card[3]}">${card[1]}</strong><span>${card[2]}</span></div>`).join('');
+}
+
+function crmDaysUntil(value) {
+    if (!value) return null;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const date = new Date(value + 'T00:00:00');
+    if (Number.isNaN(date.getTime())) return null;
+    return Math.round((date - today) / 86400000);
+}
+
+function crmDisplayStatus(client) {
+    if (client.status === 'cancelled') return CRM_STATUS_META.cancelled;
+    const days = crmDaysUntil(client.renewal_date);
+    if (days !== null && days < 0) return { label: 'Expirado', color: '#ef4444', icon: '●' };
+    if (days === 0) return { label: 'Vence hoje', color: '#f59e0b', icon: '●' };
+    if (days !== null && days <= 5) return { label: `Vence em ${days} dia${days === 1 ? '' : 's'}`, color: '#f59e0b', icon: '●' };
+    return CRM_STATUS_META[client.status] || CRM_STATUS_META.lead;
+}
+
+function setCrmExpiryFilter(filter, button) {
+    crmExpiryFilter = filter;
+    document.querySelectorAll('.crm-expiry-tabs button').forEach(item => item.classList.toggle('active', item === button));
+    renderCrmExpiry();
+}
+
+function renderCrmExpiry() {
+    const el = document.getElementById('crm-expiry-list');
+    if (!el) return;
+    const filtered = crmClients.filter(client => {
+        if (client.status === 'cancelled') return false;
+        const days = crmDaysUntil(client.renewal_date);
+        if (days === null) return false;
+        if (crmExpiryFilter === 'today') return days === 0;
+        if (crmExpiryFilter === 'five') return days >= 1 && days <= 5;
+        return days < 0;
+    }).sort((a, b) => String(a.renewal_date).localeCompare(String(b.renewal_date)));
+    if (!filtered.length) {
+        el.innerHTML = '<div class="empty" style="padding:22px;font-size:11px">Nenhum cliente nesta categoria.</div>';
+        return;
+    }
+    el.innerHTML = filtered.slice(0, 8).map(client => {
+        const status = crmDisplayStatus(client);
+        return `<div class="crm-expiry-row"><div><strong>${escHtml(client.name)}</strong><div style="color:var(--text3);margin-top:2px">+${escHtml(client.phone || '')}</div></div><span style="color:${status.color}">${status.icon} ${status.label}</span><button class="btn btn-primary" style="font-size:9px;padding:5px 8px" onclick="openClientTemplatePicker('${client.id}')" ${client.phone ? '' : 'disabled'}>💬 Mensagem</button></div>`;
+    }).join('');
+}
+
+function renderCrmChart() {
+    const svg = document.getElementById('crm-chart');
+    if (!svg) return;
+    const days = Array.from({ length: 14 }, (_, index) => {
+        const date = new Date(); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - (13 - index));
+        return date;
+    });
+    const key = date => date.toISOString().slice(0, 10);
+    const created = days.map(date => crmClients.filter(client => String(client.created_at || '').slice(0, 10) === key(date)).length);
+    const renewals = days.map(date => crmClients.filter(client => client.renewal_date === key(date)).length);
+    const max = Math.max(1, ...created, ...renewals);
+    const points = values => values.map((value, index) => `${20 + index * (660 / 13)},${175 - value * (135 / max)}`).join(' ');
+    const labels = days.filter((_date, index) => index % 3 === 0 || index === 13).map((date, index) => {
+        const originalIndex = days.indexOf(date);
+        return `<text x="${20 + originalIndex * (660 / 13)}" y="202" fill="#64748b" font-size="9" text-anchor="middle">${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</text>`;
+    }).join('');
+    svg.innerHTML = `<defs><linearGradient id="crmArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#38bdf8" stop-opacity=".35"/><stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/></linearGradient></defs>
+        <line class="crm-chart-grid" x1="20" y1="175" x2="680" y2="175"/><line class="crm-chart-grid" x1="20" y1="108" x2="680" y2="108"/><line class="crm-chart-grid" x1="20" y1="40" x2="680" y2="40"/>
+        <polyline points="${points(created)}" class="crm-chart-line"/><polyline points="${points(renewals)}" fill="none" stroke="#22c55e" stroke-width="3"/>${labels}
+        <text x="25" y="18" fill="#38bdf8" font-size="10">● Novos clientes</text><text x="125" y="18" fill="#22c55e" font-size="10">● Vencimentos</text>`;
 }
 
 function renderCrmClients() {
@@ -1554,29 +1671,21 @@ function renderCrmClients() {
         el.innerHTML = '<div class="empty-state"><div class="empty-icon">👥</div><p>Nenhum cliente encontrado.</p><small>Cadastre o primeiro cliente para começar seu CRM.</small></div>';
         return;
     }
-    el.innerHTML = filtered.map(client => {
-        const meta = CRM_STATUS_META[client.status] || CRM_STATUS_META.lead;
-        const tags = (client.tags || []).slice(0, 4).map(tag => `<span style="font-size:10px;padding:3px 7px;border-radius:12px;background:var(--bg3);color:var(--text2);">${escHtml(tag)}</span>`).join('');
-        return `<div style="padding:16px 18px;border-bottom:1px solid var(--border);">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
-                <div style="min-width:0;">
-                    <div style="font-weight:750;font-size:15px;">${escHtml(client.name)}</div>
-                    <div style="font-size:12px;color:var(--text2);margin-top:4px;">${client.phone ? '📱 +' + escHtml(client.phone) : '📱 Sem WhatsApp'}${client.plan ? ' &nbsp;•&nbsp; 📺 ' + escHtml(client.plan) : ''}</div>
-                </div>
-                <span style="font-size:10.5px;white-space:nowrap;border:1px solid ${meta.color};color:${meta.color};padding:4px 8px;border-radius:12px;">${meta.icon} ${meta.label}</span>
-            </div>
-            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--text3);">
-                <span>💰 ${crmMoney(client)}/mês</span>
-                <span>📅 Vencimento: ${crmDateValue(client.renewal_date) || 'não definido'}</span>
-            </div>
-            ${tags ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:9px;">${tags}</div>` : ''}
-            <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px;">
-                <button class="btn btn-primary" style="font-size:11px;padding:5px 9px;" onclick="openClientTemplatePicker('${client.id}')" ${client.phone ? '' : 'disabled title="Cadastre o WhatsApp do cliente"'}>💬 Mensagem</button>
-                <button class="btn btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="openCrmClientModal('${client.id}')">✏️ Editar</button>
-                <button class="btn btn-danger" style="font-size:11px;padding:5px 9px;" onclick="deleteCrmClient('${client.id}')">🗑️</button>
-            </div>
-        </div>`;
+    const pageSize = 10;
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    crmClientPage = Math.min(Math.max(1, crmClientPage), totalPages);
+    const rows = filtered.slice((crmClientPage - 1) * pageSize, crmClientPage * pageSize).map(client => {
+        const meta = crmDisplayStatus(client);
+        return `<tr>
+            <td>${escHtml(client.name)}</td>
+            <td>${client.phone ? '+' + escHtml(client.phone) : 'Não informado'}<div style="font-size:9px;color:var(--text3)">${escHtml(client.instance_name || 'Sem instância')}</div></td>
+            <td>${escHtml(client.plan || '—')}</td><td>${crmMoney(client)}</td><td>${crmDateValue(client.renewal_date) || '—'}</td>
+            <td><span class="crm-status-pill" style="color:${meta.color};background:${meta.color}18">${meta.icon} ${meta.label}</span></td>
+            <td style="white-space:nowrap"><button class="btn btn-primary" style="font-size:10px;padding:5px 7px" onclick="openClientTemplatePicker('${client.id}')" ${client.phone ? '' : 'disabled'} title="Enviar mensagem">💬</button> <button class="btn btn-secondary" style="font-size:10px;padding:5px 7px" onclick="openCrmClientModal('${client.id}')" title="Editar">✏️</button> <button class="btn btn-danger" style="font-size:10px;padding:5px 7px" onclick="deleteCrmClient('${client.id}')" title="Excluir">🗑️</button></td>
+        </tr>`;
     }).join('');
+    const pages = Array.from({ length: Math.min(totalPages, 7) }, (_, index) => index + 1).map(page => `<button class="btn ${page === crmClientPage ? 'btn-primary' : 'btn-secondary'}" style="font-size:9px;padding:4px 8px" onclick="crmClientPage=${page};renderCrmClients()">${page}</button>`).join('');
+    el.innerHTML = `<table class="crm-table"><thead><tr><th>Cliente</th><th>WhatsApp</th><th>Plano</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Ações</th></tr></thead><tbody>${rows}</tbody></table><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;font-size:10px;color:var(--text3)"><span>Mostrando ${(crmClientPage - 1) * pageSize + 1} a ${Math.min(crmClientPage * pageSize, filtered.length)} de ${filtered.length}</span><div style="display:flex;gap:4px">${pages}</div></div>`;
 }
 
 function renderCrmTemplates() {
@@ -1594,22 +1703,128 @@ function renderCrmTemplates() {
 
 function openCrmClientModal(id = '') {
     const client = crmClients.find(item => item.id === id);
+    if (!client) {
+        resetCrmClientForm();
+        document.getElementById('crm-client-form-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
     document.getElementById('crm-client-id').value = client?.id || '';
-    document.getElementById('crm-client-modal-title').textContent = client ? '✏️ Editar cliente do CRM' : '➕ Novo cliente do CRM';
+    document.getElementById('crm-client-form-title').textContent = '✏️ Editar cliente';
     document.getElementById('crm-client-name').value = client?.name || '';
     document.getElementById('crm-client-phone').value = client?.phone || '';
+    document.getElementById('crm-client-phone').readOnly = true;
+    document.getElementById('crm-client-contact-jid').value = client?.contact_jid || '';
+    document.getElementById('crm-client-instance').value = client?.instance_name || getCrmInstance();
     document.getElementById('crm-client-status').value = client?.status || 'lead';
     document.getElementById('crm-client-plan').value = client?.plan || '';
+    document.getElementById('crm-client-duration').value = String(client?.duration_months || 1);
     document.getElementById('crm-client-price').value = client?.price || '';
-    document.getElementById('crm-client-currency').value = client?.currency || 'BRL';
+    document.getElementById('crm-client-currency').value = client?.currency || 'GBP';
     document.getElementById('crm-client-start').value = client?.start_date || '';
     document.getElementById('crm-client-renewal').value = client?.renewal_date || '';
     document.getElementById('crm-client-tags').value = (client?.tags || []).join(', ');
     document.getElementById('crm-client-notes').value = client?.notes || '';
-    document.getElementById('modal-crm-client').style.display = 'flex';
+    document.getElementById('crm-client-form-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-function closeCrmClientModal() { document.getElementById('modal-crm-client').style.display = 'none'; }
+function closeCrmClientModal() { resetCrmClientForm(); }
+
+function resetCrmClientForm() {
+    const today = new Date();
+    const localToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    document.getElementById('crm-client-id').value = '';
+    document.getElementById('crm-client-form-title').textContent = '➕ Cadastrar cliente';
+    document.getElementById('crm-client-name').value = '';
+    document.getElementById('crm-client-phone').value = '';
+    document.getElementById('crm-client-phone').readOnly = true;
+    document.getElementById('crm-client-contact-jid').value = '';
+    document.getElementById('crm-client-instance').value = getCrmInstance();
+    document.getElementById('crm-client-status').value = 'active';
+    document.getElementById('crm-client-plan').value = '';
+    document.getElementById('crm-client-duration').value = '1';
+    document.getElementById('crm-client-price').value = '';
+    document.getElementById('crm-client-currency').value = 'GBP';
+    document.getElementById('crm-client-start').value = localToday;
+    document.getElementById('crm-client-tags').value = '';
+    document.getElementById('crm-client-notes').value = '';
+    calculateCrmRenewal();
+}
+
+function calculateCrmRenewal() {
+    const start = document.getElementById('crm-client-start')?.value;
+    const months = Number(document.getElementById('crm-client-duration')?.value || 1);
+    const target = document.getElementById('crm-client-renewal');
+    if (!start || !target) return;
+    const [year, month, day] = start.split('-').map(Number);
+    const lastDay = new Date(year, month - 1 + months + 1, 0).getDate();
+    const result = new Date(year, month - 1 + months, Math.min(day, lastDay));
+    target.value = new Date(result.getTime() - result.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+async function openCrmContactPicker() {
+    const instance = getCrmInstance();
+    if (!instance) return showToast('Selecione uma instância do WhatsApp primeiro.', 'error');
+    document.getElementById('crm-contact-instance-label').textContent = `Contatos de: ${userInstances.find(item => item.name === instance)?.label || instance}`;
+    document.getElementById('crm-contact-search').value = '';
+    document.getElementById('modal-crm-contact').style.display = 'flex';
+    await loadCrmContacts(false);
+}
+
+function closeCrmContactPicker() {
+    document.getElementById('modal-crm-contact').style.display = 'none';
+}
+
+async function loadCrmContacts(force = false) {
+    const instance = getCrmInstance();
+    const list = document.getElementById('crm-contact-list');
+    if (!instance || !list) return;
+    list.innerHTML = '<div class="loading">🔄 Carregando contatos do WhatsApp...</div>';
+    try {
+        const response = await authFetch(`${API}/api/contacts?instance=${encodeURIComponent(instance)}${force ? '&refresh=true' : ''}`);
+        const data = await response.json();
+        if (!response.ok || !Array.isArray(data)) throw new Error(data.error || 'Não foi possível carregar os contatos');
+        crmContacts = data;
+        renderCrmContactPicker();
+        if (force) showToast(`✅ ${crmContacts.length} contatos atualizados.`, 'success');
+    } catch (error) {
+        list.innerHTML = `<div class="empty" style="padding:24px;color:#f87171">${escHtml(error.message)}</div>`;
+    }
+}
+
+function renderCrmContactPicker() {
+    const list = document.getElementById('crm-contact-list');
+    if (!list) return;
+    const search = (document.getElementById('crm-contact-search')?.value || '').trim().toLowerCase();
+    crmVisibleContacts = crmContacts.filter(contact => !search || [contact.name, contact.phone].join(' ').toLowerCase().includes(search)).slice(0, 300);
+    if (!crmVisibleContacts.length) {
+        list.innerHTML = '<div class="empty" style="padding:24px">Nenhum contato encontrado. Você pode digitar o número manualmente.</div>';
+        return;
+    }
+    list.innerHTML = crmVisibleContacts.map((contact, index) => `<button type="button" class="crm-contact-row" onclick="chooseCrmContact(${index})"><span><strong>${escHtml(contact.name || contact.phone)}</strong><small style="display:block;color:var(--text3);margin-top:3px">+${escHtml(contact.phone || '')}</small></span><span style="color:var(--primary)">Selecionar ›</span></button>`).join('');
+}
+
+function chooseCrmContact(index) {
+    const contact = crmVisibleContacts[index];
+    if (!contact) return;
+    document.getElementById('crm-client-phone').value = contact.phone || '';
+    document.getElementById('crm-client-phone').readOnly = true;
+    document.getElementById('crm-client-contact-jid').value = contact.id || (contact.phone ? `${contact.phone}@s.whatsapp.net` : '');
+    document.getElementById('crm-client-instance').value = getCrmInstance();
+    const name = document.getElementById('crm-client-name');
+    if (!name.value.trim() || name.value.trim() === document.getElementById('crm-client-phone').value) name.value = contact.hasName ? contact.name : name.value;
+    closeCrmContactPicker();
+    showToast('✅ Contato selecionado.', 'success');
+}
+
+function enableCrmManualPhone() {
+    closeCrmContactPicker();
+    const input = document.getElementById('crm-client-phone');
+    input.readOnly = false;
+    input.value = '';
+    document.getElementById('crm-client-contact-jid').value = '';
+    document.getElementById('crm-client-instance').value = getCrmInstance();
+    input.focus();
+}
 
 async function saveCrmClient() {
     const id = document.getElementById('crm-client-id').value;
@@ -1622,6 +1837,9 @@ async function saveCrmClient() {
         currency: document.getElementById('crm-client-currency').value,
         start_date: document.getElementById('crm-client-start').value,
         renewal_date: document.getElementById('crm-client-renewal').value,
+        duration_months: Number(document.getElementById('crm-client-duration').value || 1),
+        instance_name: document.getElementById('crm-client-instance').value || getCrmInstance(),
+        contact_jid: document.getElementById('crm-client-contact-jid').value,
         tags: document.getElementById('crm-client-tags').value,
         notes: document.getElementById('crm-client-notes').value
     };
@@ -1631,7 +1849,7 @@ async function saveCrmClient() {
         const response = await authFetch(`${API}/api/admin/crm/clients${id ? '/' + id : ''}`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
         const data = await response.json();
         if (!response.ok) return showToast(data.error || 'Não foi possível salvar o cliente.', 'error');
-        closeCrmClientModal();
+        resetCrmClientForm();
         showToast(id ? '✅ Cliente atualizado.' : '✅ Cliente adicionado ao CRM.', 'success');
         await loadCrmDashboard();
     } catch { showToast('Erro de comunicação ao salvar o cliente.', 'error'); }
@@ -1746,15 +1964,24 @@ function renderScheduleTemplatePicker() {
     el.innerHTML = filtered.map(template => `<button type="button" onclick="useCrmTemplate('${template.id}')" style="width:100%;text-align:left;background:var(--bg3);border:1px solid var(--border);border-radius:11px;padding:13px;margin-bottom:8px;color:var(--text);cursor:pointer;"><strong>${template.favorite ? '⭐ ' : ''}${escHtml(template.name)}</strong><span style="font-size:10px;color:var(--primary);margin-left:6px;">${escHtml(template.category || 'Geral')}</span><div style="font-size:11.5px;color:var(--text2);white-space:pre-wrap;margin-top:6px;max-height:48px;overflow:hidden;">${escHtml(template.message)}</div></button>`).join('');
 }
 
-function useCrmTemplate(templateId) {
+async function useCrmTemplate(templateId) {
     const template = crmTemplates.find(item => item.id === templateId);
     if (!template) return;
     if (templatePickerClientId) {
         const client = crmClients.find(item => item.id === templatePickerClientId);
         if (!client?.phone) return showToast('Cadastre o WhatsApp do cliente.', 'error');
+        if (!client?.instance_name) return showToast('Edite o cliente e selecione a instância de envio.', 'error');
         const message = fillCrmTemplate(template, client);
-        window.open(`https://wa.me/${client.phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+        if (!confirm(`Enviar “${template.name}” para ${client.name} pelo WhatsApp ${client.instance_name}?`)) return;
+        const response = await authFetch(`${API}/api/admin/crm/clients/${client.id}/send`, {
+            method: 'POST',
+            body: JSON.stringify({ message })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) return showToast(data.error || 'Não foi possível enviar a mensagem.', 'error');
         closeScheduleTemplatePicker();
+        showToast('✅ Mensagem enviada pelo WhatsApp conectado.', 'success');
+        await loadCrmDashboard();
         return;
     }
     const messageField = document.getElementById('schedule-message');
