@@ -1616,12 +1616,22 @@ function renderCrmStats() {
     el.innerHTML = cards.map(card => `<div class="crm-stat"><div style="font-size:20px">${card[0]}</div><strong style="color:${card[3]}">${card[1]}</strong><span>${card[2]}</span></div>`).join('');
 }
 
-function crmDaysUntil(value) {
+function crmDaysUntil(value, referenceDate = new Date()) {
     if (!value) return null;
-    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const today = new Date(referenceDate); today.setHours(0, 0, 0, 0);
     const date = new Date(value + 'T00:00:00');
     if (Number.isNaN(date.getTime())) return null;
     return Math.round((date - today) / 86400000);
+}
+
+function crmExpiryPhrase(value, referenceDate = new Date()) {
+    const days = crmDaysUntil(value, referenceDate);
+    if (days === null) return 'tem o vencimento a combinar';
+    if (days === 0) return 'vence hoje';
+    if (days === 1) return 'vence amanhã';
+    if (days > 1) return `vence em ${days} dias`;
+    if (days === -1) return 'venceu ontem';
+    return `venceu há ${Math.abs(days)} dias`;
 }
 
 function crmDisplayStatus(client) {
@@ -1939,9 +1949,10 @@ function fillCrmTemplate(template, client) {
         nome: client?.name || '{nome}',
         plano: client?.plan || '{plano}',
         valor: client ? crmMoney(client) : '{valor}',
-        vencimento: client ? (crmDateValue(client.renewal_date) || 'data a combinar') : '{vencimento}'
+        vencimento: client ? (crmDateValue(client.renewal_date) || 'data a combinar') : '{vencimento}',
+        dias_restantes: client ? crmExpiryPhrase(client.renewal_date) : '{dias_restantes}'
     };
-    return template.message.replace(/\{(nome|plano|valor|vencimento)\}/gi, (_, key) => values[key.toLowerCase()]);
+    return template.message.replace(/\{(nome|plano|valor|vencimento|dias_restantes)\}/gi, (_, key) => values[key.toLowerCase()]);
 }
 
 async function ensureCrmTemplates() {
