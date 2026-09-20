@@ -1548,6 +1548,7 @@ function onCrmInstanceChange(clearContact = true) {
         status.textContent = instance?.connected === false ? '● Desconectado' : '● Conectado';
         status.style.color = instance?.connected === false ? '#ef4444' : 'var(--primary)';
     }
+    refreshCrmInstanceStatus(name);
     const hidden = document.getElementById('crm-client-instance');
     if (hidden && (!hidden.value || clearContact)) hidden.value = name;
     if (clearContact) {
@@ -1556,6 +1557,29 @@ function onCrmInstanceChange(clearContact = true) {
         if (phone) phone.value = '';
         const jid = document.getElementById('crm-client-contact-jid');
         if (jid) jid.value = '';
+    }
+}
+
+async function refreshCrmInstanceStatus(name) {
+    if (!name) return;
+    const status = document.getElementById('crm-instance-status');
+    try {
+        const response = await authFetch(`${API}/api/instances/${encodeURIComponent(name)}/status`);
+        const data = await response.json();
+        const connected = data.instance?.state === 'open';
+        const instance = userInstances.find(item => item.name === name);
+        if (instance) instance.connected = connected;
+        if (status && getCrmInstance() === name) {
+            status.textContent = connected ? '● Conectado' : '● Desconectado';
+            status.style.color = connected ? 'var(--primary)' : '#ef4444';
+        }
+        const option = document.querySelector(`#crm-instance-select option[value="${CSS.escape(name)}"]`);
+        if (option && instance) option.textContent = `${instance.label || instance.name} ${connected ? '🟢' : '🔴'}`;
+    } catch {
+        if (status && getCrmInstance() === name) {
+            status.textContent = '● Não foi possível verificar';
+            status.style.color = '#f59e0b';
+        }
     }
 }
 
