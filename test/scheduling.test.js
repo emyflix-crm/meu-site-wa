@@ -319,6 +319,30 @@ test('contacts merge Evolution contacts and chats, prefer saved names and remove
     assert.deepEqual(cached, response);
 });
 
+test('instance list refreshes the real Evolution connection state', async () => {
+    let handler;
+    const context = {
+        app: { get(url, ...handlers) { if (url === '/api/instances') handler = handlers.at(-1); } },
+        authMiddleware() {},
+        loadUsers: () => [{ id: 'admin', role: 'admin', instances: [
+            { name: 'admin-wa', label: 'Principal (Admin)', connected: false }
+        ] }],
+        ADMIN_INSTANCE: 'admin-wa', EVOLUTION_API_URL: 'http://evolution',
+        getUserPlan: () => ({ max_instances: 1 }), evoHeaders: () => ({}),
+        axios: { get: async () => ({ data: { instance: { state: 'open' } } }) }
+    };
+    vm.runInNewContext(
+        server.slice(server.indexOf("app.get('/api/instances'"), server.indexOf("app.post('/api/instances'")),
+        context
+    );
+    let response;
+    await handler(
+        { user: { id: 'admin', role: 'admin' } },
+        { json(value) { response = value; } }
+    );
+    assert.equal(response.instances[0].connected, true);
+});
+
 test('destination refresh follows the selected tab and forces contact reload', () => {
     const client = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
     const refreshBlock = client.slice(client.indexOf('async function forceRefreshDest'), client.indexOf('// ── CAMPANHAS'));
