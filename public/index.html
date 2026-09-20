@@ -12,6 +12,26 @@
         .tz-btn:hover { border-color:var(--primary); color:var(--text); }
         .tz-btn.active { background:var(--primary-glow); border-color:var(--primary); color:var(--primary); font-weight:600; }
         .client-action-btn { padding:5px 10px; border-radius:6px; font-size:12px; font-weight:600; border:none; cursor:pointer; display:inline-flex; align-items:center; gap:4px; }
+        .crm-top-grid,.crm-work-grid{display:grid;grid-template-columns:minmax(260px,.9fr) minmax(480px,1.7fr);gap:14px;margin-bottom:14px}
+        .crm-work-grid{grid-template-columns:minmax(440px,1.25fr) minmax(390px,1fr)}
+        .crm-panel{background:var(--bg2);border:1px solid var(--border);border-radius:15px;overflow:hidden}
+        .crm-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+        .crm-panel-head h2{font-size:14px;margin:0}
+        .crm-instance-body{padding:15px}.crm-instance-row{display:flex;align-items:center;gap:10px}
+        .crm-wa-icon{width:38px;height:38px;border-radius:11px;background:rgba(37,211,102,.14);display:grid;place-items:center;font-size:20px}
+        .crm-instance-select{flex:1}.crm-instance-select select{font-weight:650}
+        .crm-expiry-tabs{display:flex;gap:5px}.crm-expiry-tabs button{border:1px solid var(--border);background:var(--bg3);color:var(--text2);padding:6px 9px;border-radius:8px;font-size:10px;cursor:pointer}
+        .crm-expiry-tabs button.active{background:var(--primary);color:#04130a;border-color:var(--primary);font-weight:700}
+        .crm-expiry-list{max-height:150px;overflow:auto}.crm-expiry-row{display:grid;grid-template-columns:minmax(100px,1fr) auto auto;gap:10px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--border);font-size:11px}
+        .crm-stats-grid{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:12px;margin-bottom:14px}
+        .crm-stat{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:15px;text-align:center}.crm-stat strong{display:block;font-size:24px;margin-top:4px}.crm-stat span{font-size:11px;color:var(--text3)}
+        .crm-chart-wrap{padding:14px 16px}.crm-chart{width:100%;height:210px;display:block}.crm-chart-grid{stroke:var(--border);stroke-width:1}.crm-chart-line{fill:none;stroke:#38bdf8;stroke-width:3}.crm-chart-area{fill:url(#crmArea)}
+        .crm-quick-form{padding:14px 16px}.crm-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.crm-form-grid .form-group{margin:0}.crm-form-grid label{font-size:10px}
+        .crm-phone-field{display:grid;grid-template-columns:1fr auto auto;gap:5px}.crm-phone-field .btn{padding:7px 9px;font-size:10px}
+        .crm-table-tools{display:flex;gap:8px;flex-wrap:wrap}.crm-table-tools input{flex:1;min-width:200px}.crm-table-wrap{overflow:auto}.crm-table{width:100%;border-collapse:collapse;min-width:880px}.crm-table th,.crm-table td{padding:10px 12px;border-bottom:1px solid var(--border);text-align:left;font-size:11px}.crm-table th{color:var(--text3);font-weight:600;background:var(--bg3);position:sticky;top:0}.crm-table td{color:var(--text2)}.crm-table td:first-child{color:var(--text);font-weight:650}
+        .crm-status-pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:10px;white-space:nowrap}
+        .crm-contact-list{max-height:440px;overflow:auto;border:1px solid var(--border);border-radius:11px}.crm-contact-row{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;background:transparent;border:0;border-bottom:1px solid var(--border);color:var(--text);text-align:left;cursor:pointer}.crm-contact-row:hover{background:var(--primary-glow)}
+        @media(max-width:1000px){.crm-top-grid,.crm-work-grid{grid-template-columns:1fr}.crm-stats-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.crm-form-grid{grid-template-columns:1fr}.crm-stats-grid{grid-template-columns:1fr 1fr}.crm-expiry-row{grid-template-columns:1fr auto}.crm-expiry-row .btn{grid-column:1/-1}}
     </style>
 </head>
 <body>
@@ -645,8 +665,8 @@
         <div id="page-crm" class="page">
             <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
                 <div>
-                    <h1>🗂️ CRM de Clientes</h1>
-                    <p>Organize clientes, vencimentos e mensagens prontas em um só lugar — acesso exclusivo do administrador</p>
+                    <h1>🗂️ Meus Clientes</h1>
+                    <p>Gestão de clientes, vencimentos e renovações</p>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-secondary" onclick="openCrmTemplateModal()">📝 Nova mensagem</button>
@@ -654,40 +674,60 @@
                 </div>
             </div>
 
-            <div id="crm-stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px;"></div>
-
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px;align-items:start;">
-                <div class="card">
-                    <div class="card-header" style="gap:10px;flex-wrap:wrap;">
-                        <h2>👥 Meus clientes</h2>
-                        <button class="btn btn-secondary" style="font-size:11px;" onclick="loadCrmDashboard()">🔄 Atualizar</button>
+            <div class="crm-top-grid">
+                <section class="crm-panel">
+                    <div class="crm-panel-head"><h2>📱 Instância selecionada</h2><span id="crm-instance-status" style="font-size:10px;color:var(--primary)">● Conectado</span></div>
+                    <div class="crm-instance-body">
+                        <div class="crm-instance-row"><div class="crm-wa-icon">💬</div><div class="crm-instance-select"><select id="crm-instance-select" onchange="onCrmInstanceChange()"></select><small style="color:var(--text3)">As mensagens sairão deste WhatsApp</small></div></div>
                     </div>
-                    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;">
-                        <input id="crm-search" type="text" placeholder="🔍 Buscar nome, WhatsApp, plano..." oninput="renderCrmClients()" style="flex:1;min-width:190px;">
-                        <select id="crm-status-filter" onchange="renderCrmClients()" style="min-width:150px;">
-                            <option value="">Todos os status</option>
-                            <option value="lead">Novo contato</option>
-                            <option value="trial">Em teste</option>
-                            <option value="active">Cliente ativo</option>
-                            <option value="expiring">Vence em breve</option>
-                            <option value="overdue">Pagamento pendente</option>
-                            <option value="cancelled">Cancelado</option>
-                        </select>
-                    </div>
-                    <div id="crm-clients-list"><div class="loading">Carregando clientes...</div></div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header" style="gap:10px;flex-wrap:wrap;">
-                        <div>
-                            <h2>📝 Mensagens prontas</h2>
-                            <p style="font-size:11px;color:var(--text3);margin-top:3px;">Use no WhatsApp ou dentro de um agendamento</p>
-                        </div>
-                        <button class="btn btn-primary" style="font-size:11px;" onclick="openCrmTemplateModal()">＋ Criar</button>
-                    </div>
-                    <div id="crm-templates-list"><div class="loading">Carregando modelos...</div></div>
-                </div>
+                </section>
+                <section class="crm-panel">
+                    <div class="crm-panel-head"><h2>⏳ Clientes vencendo</h2><div class="crm-expiry-tabs"><button class="active" data-expiry="today" onclick="setCrmExpiryFilter('today',this)">Hoje</button><button data-expiry="five" onclick="setCrmExpiryFilter('five',this)">Em 5 dias</button><button data-expiry="expired" onclick="setCrmExpiryFilter('expired',this)">Expirados</button></div></div>
+                    <div id="crm-expiry-list" class="crm-expiry-list"><div class="loading">Carregando...</div></div>
+                </section>
             </div>
+
+            <div id="crm-stats" class="crm-stats-grid"></div>
+
+            <div class="crm-work-grid">
+                <section class="crm-panel">
+                    <div class="crm-panel-head"><h2>📊 Entradas e renovações</h2><small style="color:var(--text3)">Últimos 14 dias</small></div>
+                    <div class="crm-chart-wrap"><svg id="crm-chart" class="crm-chart" viewBox="0 0 700 210" preserveAspectRatio="none"></svg></div>
+                </section>
+
+                <section class="crm-panel" id="crm-client-form-card">
+                    <div class="crm-panel-head"><h2 id="crm-client-form-title">➕ Cadastrar cliente</h2><button class="btn btn-secondary" style="font-size:10px" onclick="resetCrmClientForm()">Limpar</button></div>
+                    <div class="crm-quick-form">
+                        <input type="hidden" id="crm-client-id"><input type="hidden" id="crm-client-contact-jid"><input type="hidden" id="crm-client-instance">
+                        <div class="crm-form-grid">
+                            <div class="form-group"><label>Nome *</label><input id="crm-client-name" type="text" placeholder="Nome completo"></div>
+                            <div class="form-group"><label>WhatsApp *</label><div class="crm-phone-field"><input id="crm-client-phone" type="tel" readonly onclick="openCrmContactPicker()" placeholder="Selecionar contato"><button class="btn btn-secondary" type="button" onclick="openCrmContactPicker()">🔍 Contatos</button><button class="btn btn-secondary" type="button" onclick="enableCrmManualPhone()">✍️</button></div></div>
+                            <div class="form-group"><label>Plano</label><input id="crm-client-plan" type="text" placeholder="Ex: Titan Mensal"></div>
+                            <div class="form-group"><label>Duração</label><select id="crm-client-duration" onchange="calculateCrmRenewal()"><option value="1">1 mês</option><option value="3">3 meses</option><option value="6">6 meses</option><option value="12">1 ano</option></select></div>
+                            <div class="form-group"><label>Valor</label><div style="display:grid;grid-template-columns:80px 1fr;gap:6px"><select id="crm-client-currency"><option value="GBP">£ Libra</option><option value="BRL">R$ Real</option><option value="EUR">€ Euro</option><option value="USD">$ Dólar</option></select><input id="crm-client-price" type="number" min="0" step="0.01" placeholder="0,00"></div></div>
+                            <div class="form-group"><label>Status</label><select id="crm-client-status"><option value="active">🟢 Cliente ativo</option><option value="trial">🟣 Em teste</option><option value="lead">🔵 Novo contato</option><option value="expiring">🟠 Vence em breve</option><option value="overdue">🔴 Pagamento pendente</option><option value="cancelled">⚫ Cancelado</option></select></div>
+                            <div class="form-group"><label>Data inicial</label><input id="crm-client-start" type="date" onchange="calculateCrmRenewal()"></div>
+                            <div class="form-group"><label>Vencimento</label><input id="crm-client-renewal" type="date"></div>
+                        </div>
+                        <div class="form-group" style="margin-top:10px"><label>Observações</label><input id="crm-client-notes" type="text" placeholder="Aparelho, indicação ou outra observação"><input id="crm-client-tags" type="hidden"></div>
+                        <div style="font-size:10px;color:var(--text3);margin:8px 0">ⓘ O vencimento é calculado automaticamente e pode ser editado.</div>
+                        <button id="crm-client-save" class="btn btn-primary" style="width:100%" onclick="saveCrmClient()">💾 Salvar cliente</button>
+                    </div>
+                </section>
+            </div>
+
+            <section class="crm-panel" style="margin-bottom:14px">
+                <div class="crm-panel-head" style="flex-wrap:wrap"><h2>👥 Lista de clientes</h2><div class="crm-table-tools"><input id="crm-search" type="text" placeholder="🔍 Buscar nome, WhatsApp ou plano..." oninput="renderCrmClients()"><select id="crm-status-filter" onchange="renderCrmClients()"><option value="">Todos os status</option><option value="active">Ativos</option><option value="trial">Em teste</option><option value="expiring">Vencem em breve</option><option value="overdue">Pendentes</option><option value="cancelled">Cancelados</option></select><button class="btn btn-secondary" onclick="loadCrmDashboard()">↻</button></div></div>
+                <div id="crm-clients-list" class="crm-table-wrap"><div class="loading">Carregando clientes...</div></div>
+            </section>
+
+            <section class="crm-panel">
+                <div class="crm-panel-head">
+                    <div><h2>📝 Mensagens prontas</h2><p style="font-size:10px;color:var(--text3);margin-top:3px">Use para vendas, cobrança e renovação</p></div>
+                    <button class="btn btn-primary" style="font-size:11px" onclick="openCrmTemplateModal()">＋ Criar</button>
+                </div>
+                <div id="crm-templates-list"><div class="loading">Carregando modelos...</div></div>
+            </section>
         </div>
 
         <!-- PAINEL ADMIN COM GESTÃO TOTAL DE CLIENTES E LIMITES -->
@@ -737,27 +777,13 @@
 
     </div>
 
-    <!-- MODAL CRM: CLIENTE -->
-    <div id="modal-crm-client" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1001;align-items:center;justify-content:center;">
-        <div style="background:var(--bg2);border-radius:18px;max-width:640px;width:94%;padding:26px;border:1px solid var(--border);max-height:92vh;overflow-y:auto;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-                <h3 id="crm-client-modal-title">➕ Novo cliente do CRM</h3>
-                <button onclick="closeCrmClientModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button>
-            </div>
-            <input type="hidden" id="crm-client-id">
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;">
-                <div class="form-group"><label>Nome *</label><input id="crm-client-name" type="text" placeholder="Ex: Hannah"></div>
-                <div class="form-group"><label>WhatsApp com país</label><input id="crm-client-phone" type="tel" placeholder="Ex: 447404200049"></div>
-                <div class="form-group"><label>Status</label><select id="crm-client-status"><option value="lead">🔵 Novo contato</option><option value="trial">🟣 Em teste</option><option value="active">🟢 Cliente ativo</option><option value="expiring">🟠 Vence em breve</option><option value="overdue">🔴 Pagamento pendente</option><option value="cancelled">⚫ Cancelado</option></select></div>
-                <div class="form-group"><label>Plano / produto</label><input id="crm-client-plan" type="text" placeholder="Ex: Canais Premium"></div>
-                <div class="form-group"><label>Valor mensal</label><input id="crm-client-price" type="number" min="0" step="0.01" placeholder="0,00"></div>
-                <div class="form-group"><label>Moeda</label><select id="crm-client-currency"><option value="BRL">R$ Real</option><option value="GBP">£ Libra</option><option value="EUR">€ Euro</option><option value="USD">$ Dólar</option></select></div>
-                <div class="form-group"><label>Data de início</label><input id="crm-client-start" type="date"></div>
-                <div class="form-group"><label>Próximo vencimento</label><input id="crm-client-renewal" type="date"></div>
-            </div>
-            <div class="form-group"><label>Etiquetas</label><input id="crm-client-tags" type="text" placeholder="Ex: Londres, indicação, IPTV"></div>
-            <div class="form-group"><label>Observações</label><textarea id="crm-client-notes" rows="4" placeholder="Anote preferências, aparelho, histórico de contato..."></textarea></div>
-            <div style="display:flex;justify-content:flex-end;gap:8px;"><button class="btn btn-secondary" onclick="closeCrmClientModal()">Cancelar</button><button id="crm-client-save" class="btn btn-primary" onclick="saveCrmClient()">✓ Salvar cliente</button></div>
+    <!-- MODAL CRM: ESCOLHER CONTATO DA INSTÂNCIA -->
+    <div id="modal-crm-contact" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1002;align-items:center;justify-content:center;">
+        <div style="background:var(--bg2);border-radius:18px;max-width:620px;width:94%;padding:24px;border:1px solid var(--border);max-height:90vh;overflow:hidden;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div><h3>📱 Selecionar contato</h3><p id="crm-contact-instance-label" style="font-size:11px;color:var(--text3);margin-top:4px"></p></div><button onclick="closeCrmContactPicker()" style="background:none;border:0;color:var(--text3);font-size:20px;cursor:pointer">✕</button></div>
+            <input id="crm-contact-search" type="text" placeholder="🔍 Pesquisar nome ou telefone..." oninput="renderCrmContactPicker()" style="margin-bottom:10px">
+            <div id="crm-contact-list" class="crm-contact-list"><div class="loading">Carregando contatos...</div></div>
+            <div style="display:flex;justify-content:space-between;gap:8px;margin-top:12px"><button class="btn btn-secondary" onclick="loadCrmContacts(true)">↻ Atualizar contatos</button><button class="btn btn-secondary" onclick="enableCrmManualPhone()">✍️ Digitar manualmente</button></div>
         </div>
     </div>
 
