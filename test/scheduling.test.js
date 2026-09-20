@@ -283,8 +283,24 @@ test('CRM appears only for admins and messages integrate with scheduling', () =>
     assert.match(client, /schedule-message/);
     assert.match(client, /https:\/\/wa\.me\//);
     assert.match(html, /id="crm-instance-select"/);
+    assert.match(html, /\{dias_restantes\}/);
     assert.match(html, /openCrmContactPicker\(\)/);
     assert.match(client, /\/api\/admin\/crm\/clients\/\$\{client\.id\}\/send/);
+});
+
+test('CRM template expiry variable uses natural singular, plural and expired phrases', () => {
+    const client = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+    const start = client.indexOf('function crmDaysUntil');
+    const end = client.indexOf('function crmDisplayStatus', start);
+    const context = {};
+    vm.runInNewContext(client.slice(start, end), context);
+    const today = new Date('2026-09-20T12:00:00');
+    assert.equal(context.crmExpiryPhrase('2026-09-20', today), 'vence hoje');
+    assert.equal(context.crmExpiryPhrase('2026-09-21', today), 'vence amanhã');
+    assert.equal(context.crmExpiryPhrase('2026-09-25', today), 'vence em 5 dias');
+    assert.equal(context.crmExpiryPhrase('2026-09-19', today), 'venceu ontem');
+    assert.equal(context.crmExpiryPhrase('2026-09-18', today), 'venceu há 2 dias');
+    assert.equal(context.crmExpiryPhrase('', today), 'tem o vencimento a combinar');
 });
 
 test('contacts merge Evolution contacts and chats, prefer saved names and remove duplicates', async () => {
