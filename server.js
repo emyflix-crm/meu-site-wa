@@ -395,6 +395,19 @@ function normalizeCrmClient(body, current = {}) {
     const renewalDate = cleanDate(body.renewal_date);
     if (startDate === null || renewalDate === null) return { error: 'Data inválida' };
 
+    const durationMonths = body.duration_months === '' || body.duration_months === null || body.duration_months === undefined
+        ? (Number(current.duration_months) || 1)
+        : Number(body.duration_months);
+    if (!Number.isInteger(durationMonths) || durationMonths < 1 || durationMonths > 120) {
+        return { error: 'Duração do plano inválida' };
+    }
+
+    const instanceName = cleanText(body.instance_name, 120) || current.instance_name || '';
+    const contactJidInput = cleanText(body.contact_jid, 180);
+    const contactJid = phone
+        ? (contactJidInput.endsWith('@s.whatsapp.net') ? `${phone}@s.whatsapp.net` : `${phone}@s.whatsapp.net`)
+        : '';
+
     const tags = Array.isArray(body.tags)
         ? body.tags.map(tag => cleanText(tag, 30)).filter(Boolean).slice(0, 20)
         : cleanText(body.tags, 500).split(',').map(tag => cleanText(tag, 30)).filter(Boolean).slice(0, 20);
@@ -409,6 +422,9 @@ function normalizeCrmClient(body, current = {}) {
             currency,
             start_date: startDate,
             renewal_date: renewalDate,
+            duration_months: durationMonths,
+            instance_name: instanceName,
+            contact_jid: contactJid,
             notes: cleanText(body.notes, 2000),
             tags
         }
@@ -478,6 +494,41 @@ app.delete('/api/admin/crm/clients/:id', authMiddleware, adminMiddleware, (req, 
     db.crmClients.splice(index, 1);
     saveDB(db);
     res.json({ success: true });
+});
+
+// Envio manual e individual pelo WhatsApp vinculado ao cliente do CRM.
+// Os lembretes automáticos usarão esta mesma base em uma etapa separada,
+// depois da validação contra duplicidade e reconexão da instância.
+app.post('/api/admin/crm/clients/:id/send', authMiddleware, adminMiddleware, async (req, res) => {
+    const db = loadDB();
+    const client = (db.crmClients || []).find(item => item.id === req.params.id && item.owner_id === req.user.id);
+    if (!client) return res.status(404).json({ error: 'Cliente do CRM não encontrado' });
+
+    const message = cleanText(req.body.message, 5000);
+    if (!message) return res.status(400).json({ error: 'Mensagem obrigatória' });
+    if (!client.phone) return res.status(400).json({ error: 'Cliente sem WhatsApp cadastrado' });
+    if (!client.instance_name) return res.status(400).json({ error: 'Selecione a instância do WhatsApp deste cliente' });
+    if (!EVOLUTION_API_URL) return res.status(503).json({ error: 'Evolution API não configurada' });
+
+    const number = client.contact_jid || `${client.phone}@s.whatsapp.net`;
+    try {
+        await axios.post(`${EVOLUTION_API_URL}/message/sendText/${encodeURIComponent(client.instance_name)}`, {
+            number,
+            text: message
+        }, { headers: evoHeaders(), timeout: 15000 });
+        client.last_contacted_at = new Date().toISOString();
+        client.updated_at = client.last_contacted_at;
+        saveDB(db);
+        res.json({ success: true, sent_at: client.last_contacted_at });
+    } catch (error) {
+        logger.warn('CRM manual send failed', {
+            clientId: client.id,
+            instance: client.instance_name,
+            status: error.response?.status,
+            code: error.code
+        });
+        res.status(502).json({ error: 'Não foi possível enviar. Verifique se o WhatsApp está conectado e tente novamente.' });
+    }
 });
 
 app.get('/api/admin/crm/templates', authMiddleware, adminMiddleware, (req, res) => {
@@ -697,7 +748,7 @@ app.get('/api/contacts', authMiddleware, async (req, res) => {
     }
     if (!inst || !EVOLUTION_API_URL) return res.json([]);
 
-    const cacheKey = `contacts_${inst}`;
+    const cacheKey = `contacts_v2_${inst}`;
     const cached = getCache(cacheKey);
     if (!forceRefresh) {
         if (cached) return res.json(cached);
@@ -757,8 +808,7 @@ app.get('/api/contacts', authMiddleware, async (req, res) => {
 
     const result = Array.from(merged.values())
         .map(({ sourcePriority, ...contact }) => contact)
-        .sort((a, b) => (a.hasName && !b.hasName ? -1 : !a.hasName && b.hasName ? 1 : (a.name || '').localeCompare(b.name || '')))
-        .slice(0, 500);
+        .sort((a, b) => (a.hasName && !b.hasName ? -1 : !a.hasName && b.hasName ? 1 : (a.name || '').localeCompare(b.name || '')));
 
     if (result.length > 0) {
         setCache(cacheKey, result, 120000);
