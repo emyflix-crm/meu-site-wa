@@ -566,56 +566,79 @@ app.get('/api/groups', authMiddleware, async (req, res) => {
     const nameMap = new Map();
     if (diskCached && Array.isArray(diskCached.groups)) {
         diskCached.groups.forEach(g => {
-            if (g.id && g.subject && g.subject !== g.id) nameMap.set(g.id, g.subject);
+            const oldName = g.subject || g.name;
+            const numericId = String(g.id || '').replace('@g.us', '');
+            if (g.id && oldName && oldName !== g.id && oldName !== numericId && !/^\d{10,}(?:-\d+)?$/.test(oldName)) {
+                nameMap.set(g.id, oldName);
+            }
         });
     }
 
-    // ESTRATÉGIA 1: findChats (rápido, 9s)
-    try {
-        const rChats = await axios.post(`${EVOLUTION_API_URL}/chat/findChats/${inst}`, { where: {} }, {
-            headers: evoHeaders(), timeout: 9000
+    const validGroupName = (value, jid) => {
+        const name = String(value || '').trim();
+        const numericId = String(jid || '').replace('@g.us', '');
+        if (!name || name === jid || name === numericId || /^\d{10,}(?:-\d+)?$/.test(name)) return null;
+        return name.slice(0, 180);
+    };
+    const chatMap = new Map();
+
+    // Busca a lista completa e as conversas em paralelo. Antes, a lista completa
+    // só era consultada quando findChats retornava zero, escondendo grupos sem chat recente.
+    const [chatsResult, allGroupsResult] = await Promise.allSettled([
+        axios.post(`${EVOLUTION_API_URL}/chat/findChats/${inst}`, { where: {} }, {
+            headers: evoHeaders(), timeout: 10000
+        }),
+        axios.get(`${EVOLUTION_API_URL}/group/fetchAllGroups/${inst}?getParticipants=false`, {
+            headers: evoHeaders(), timeout: 30000
+        })
+    ]);
+
+    if (chatsResult.status === 'fulfilled') {
+        const chatsData = chatsResult.value.data;
+        const chatsRaw = Array.isArray(chatsData) ? chatsData : (chatsData?.chats || chatsData?.data || []);
+        const chats = Array.isArray(chatsRaw) ? chatsRaw : [];
+        chats.filter(c => (c.remoteJid || c.id || '').includes('@g.us')).forEach(c => {
+            const jid = c.remoteJid || c.id;
+            chatMap.set(jid, c);
         });
-        const chats = Array.isArray(rChats.data) ? rChats.data : (rChats.data?.chats || rChats.data?.data || []);
-        const groupChats = chats.filter(c => (c.remoteJid || c.id || '').includes('@g.us'));
-
-        if (groupChats.length > 0) {
-            groups = groupChats.map(c => {
-                const jid = c.remoteJid || c.id;
-                const existing = nameMap.get(jid);
-                const name = c.pushName || c.name || c.subject || existing || null;
-                return {
-                    id: jid,
-                    name: name || jid.replace('@g.us', ''),
-                    subject: name || jid.replace('@g.us', ''),
-                    hasName: !!name,
-                    unreadCount: c.unreadCount || 0,
-                    lastMessageTimestamp: c.lastMessage?.messageTimestamp || (c.updatedAt ? Math.floor(new Date(c.updatedAt).getTime() / 1000) : 0)
-                };
-            });
-        }
-    } catch (errChats) {
-        logger.warn('findChats groups failed, falling back to fetchAllGroups', { err: errChats.message });
+    } else {
+        logger.warn('findChats groups failed', { instance: inst, err: chatsResult.reason?.message });
     }
 
-    // ESTRATÉGIA 2: fetchAllGroups como fallback (25s)
-    if (!groups.length) {
-        try {
-            const r = await axios.get(`${EVOLUTION_API_URL}/group/fetchAllGroups/${inst}?getParticipants=false`, {
-                headers: evoHeaders(), timeout: 25000
-            });
-            const raw = Array.isArray(r.data) ? r.data : [];
-            groups = raw.map(g => ({
-                id: g.id,
-                name: g.subject || g.name || g.id,
-                subject: g.subject || g.name || g.id,
-                hasName: true,
-                creation: g.creation,
-                lastMessageTimestamp: g.lastMessageTimestamp || 0
-            }));
-        } catch (errAll) {
-            logger.warn('fetchAllGroups also failed', { err: errAll.message });
-        }
+    let allGroups = [];
+    if (allGroupsResult.status === 'fulfilled') {
+        const groupsData = allGroupsResult.value.data;
+        const groupsRaw = Array.isArray(groupsData) ? groupsData : (groupsData?.groups || groupsData?.data || []);
+        allGroups = Array.isArray(groupsRaw) ? groupsRaw : [];
+    } else {
+        logger.warn('fetchAllGroups failed', { instance: inst, err: allGroupsResult.reason?.message });
     }
+
+    const groupIds = new Set(allGroups.map(g => g.id || g.remoteJid).filter(id => id && id.includes('@g.us')));
+    // Se a chamada completa falhar ou vier vazia, mantém as conversas como fallback.
+    if (!groupIds.size) chatMap.forEach((_chat, jid) => groupIds.add(jid));
+
+    const fullMap = new Map(allGroups.map(g => [g.id || g.remoteJid, g]));
+    groups = Array.from(groupIds).map(jid => {
+        const full = fullMap.get(jid) || {};
+        const chat = chatMap.get(jid) || {};
+        const name = validGroupName(full.subject || full.name, jid)
+            || validGroupName(chat.subject || chat.name || chat.pushName, jid)
+            || nameMap.get(jid)
+            || null;
+        const fallback = jid.replace('@g.us', '');
+        return {
+            id: jid,
+            name: name || fallback,
+            subject: name || fallback,
+            hasName: Boolean(name),
+            creation: full.creation,
+            unreadCount: chat.unreadCount || 0,
+            lastMessageTimestamp: chat.lastMessage?.messageTimestamp
+                || full.lastMessageTimestamp
+                || (chat.updatedAt ? Math.floor(new Date(chat.updatedAt).getTime() / 1000) : 0)
+        };
+    });
 
     if (groups.length > 0) {
         groups.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
