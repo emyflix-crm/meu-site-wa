@@ -299,3 +299,40 @@ test('destination refresh follows the selected tab and forces contact reload', (
     assert.match(refreshBlock, /loadContactsForInstance\(instName, true\)/);
     assert.match(client, /refresh=true/);
 });
+
+test('group refresh uses the complete Evolution list even when chats return only some groups', async () => {
+    const routes = {};
+    let db = { groupsCache: {} };
+    let cached;
+    const context = {
+        app: { get(url, ...handlers) { routes[url] = handlers; } },
+        authMiddleware() {}, ADMIN_INSTANCE: 'admin-wa', EVOLUTION_API_URL: 'http://evolution',
+        loadUsers: () => [], loadDB: () => structuredClone(db), saveDB: next => { db = structuredClone(next); },
+        getCache: () => null, setCache: (_key, value) => { cached = value; }, evoHeaders: () => ({}),
+        logger: { warn() {} },
+        axios: {
+            post: async () => ({ data: [
+                { remoteJid: '111111111111111111@g.us', name: 'Grupo com conversa', unreadCount: 2 }
+            ] }),
+            get: async url => {
+                if (url.includes('fetchAllGroups')) return { data: [
+                    { id: '111111111111111111@g.us', subject: 'Nome oficial do grupo' },
+                    { id: '222222222222222222@g.us', subject: 'Grupo sem conversa recente' }
+                ] };
+                return { data: {} };
+            }
+        }
+    };
+    vm.runInNewContext(server.slice(server.indexOf("app.get('/api/groups'"), server.indexOf("app.get('/api/contacts'")), context);
+    let status = 200, response;
+    await routes['/api/groups'].at(-1)(
+        { query: { instance: 'admin-wa', refresh: 'true' }, user: { id: 'admin', role: 'admin' } },
+        { status(value) { status = value; return this; }, json(value) { response = value; } }
+    );
+    assert.equal(status, 200);
+    assert.equal(response.length, 2);
+    assert.equal(response.find(g => g.id.startsWith('111')).name, 'Nome oficial do grupo');
+    assert.equal(response.find(g => g.id.startsWith('222')).name, 'Grupo sem conversa recente');
+    assert.equal(cached.length, 2);
+    assert.equal(db.groupsCache['admin-wa'].groups.length, 2);
+});
