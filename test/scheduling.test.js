@@ -199,17 +199,21 @@ test('editor with mocked DOM loads values and submits PUT with modified payload'
 function crmRouteHarness() {
     const routes = {};
     let db = { crmClients: [], messageTemplates: [] };
+    const sent = [];
     const context = {
         app: Object.fromEntries(['get', 'post', 'put', 'delete'].map(method =>
             [method, (url, ...handlers) => { routes[method + ' ' + url] = handlers; }])),
         authMiddleware() {}, adminMiddleware() {},
         loadDB: () => structuredClone(db),
-        saveDB: next => { db = structuredClone(next); }
+        saveDB: next => { db = structuredClone(next); },
+        EVOLUTION_API_URL: 'http://evolution', evoHeaders: () => ({ apikey: 'hidden' }),
+        axios: { post: async (url, body) => { sent.push({ url, body }); return { data: { key: { id: 'ok' } } }; } },
+        logger: { warn() {} }
     };
     vm.runInNewContext(server.slice(server.indexOf('const CRM_STATUSES'), server.indexOf('// ── FAST GROUPS')), context);
     return {
         routes,
-        db: () => db,
+        db: () => db, sent,
         async call(key, body = {}, id = '') {
             let status = 200, data;
             const res = { status(n) { status = n; return this; }, json(v) { data = v; } };
@@ -222,10 +226,15 @@ function crmRouteHarness() {
 test('admin CRM creates, edits and removes clients without touching schedules', async () => {
     const h = crmRouteHarness();
     const created = await h.call('post /api/admin/crm/clients', {
-        name: 'Hannah', phone: '+44 7404 200049', status: 'trial', plan: 'Premium', price: '25.50', currency: 'GBP', renewal_date: '2026-09-30', tags: 'Londres, IPTV'
+        name: 'Hannah', phone: '+44 7404 200049', contact_jid: '447404200049@s.whatsapp.net',
+        instance_name: 'teste-nascimento', duration_months: 3, status: 'trial', plan: 'Premium',
+        price: '25.50', currency: 'GBP', renewal_date: '2026-09-30', tags: 'Londres, IPTV'
     });
     assert.equal(created.status, 200);
     assert.equal(created.data.client.phone, '447404200049');
+    assert.equal(created.data.client.contact_jid, '447404200049@s.whatsapp.net');
+    assert.equal(created.data.client.instance_name, 'teste-nascimento');
+    assert.equal(created.data.client.duration_months, 3);
     assert.equal(created.data.client.owner_id, 'admin');
     const id = created.data.client.id;
     const updated = await h.call('put /api/admin/crm/clients/:id', { ...created.data.client, status: 'active', price: 30 }, id);
@@ -235,6 +244,21 @@ test('admin CRM creates, edits and removes clients without touching schedules', 
     assert.equal((await h.call('delete /api/admin/crm/clients/:id', {}, id)).status, 200);
     assert.equal(h.db().crmClients.length, 0);
     assert.equal(h.db().schedules, undefined);
+});
+
+test('CRM sends one reviewed template through the WhatsApp instance saved on the client', async () => {
+    const h = crmRouteHarness();
+    const created = await h.call('post /api/admin/crm/clients', {
+        name: 'Sergio', phone: '447700123456', contact_jid: '447700123456@s.whatsapp.net',
+        instance_name: 'principal-admin', duration_months: 1, status: 'active'
+    });
+    const id = created.data.client.id;
+    const result = await h.call('post /api/admin/crm/clients/:id/send', { message: 'Seu plano vence em 5 dias.' }, id);
+    assert.equal(result.status, 200);
+    assert.equal(h.sent.length, 1);
+    assert.match(h.sent[0].url, /sendText\/principal-admin$/);
+    assert.equal(h.sent[0].body.number, '447700123456@s.whatsapp.net');
+    assert.equal(h.sent[0].body.text, 'Seu plano vence em 5 dias.');
 });
 
 test('admin-only message templates validate content and persist variables', async () => {
@@ -258,6 +282,9 @@ test('CRM appears only for admins and messages integrate with scheduling', () =>
     assert.match(html, /openScheduleTemplatePicker\(\)/);
     assert.match(client, /schedule-message/);
     assert.match(client, /https:\/\/wa\.me\//);
+    assert.match(html, /id="crm-instance-select"/);
+    assert.match(html, /openCrmContactPicker\(\)/);
+    assert.match(client, /\/api\/admin\/crm\/clients\/\$\{client\.id\}\/send/);
 });
 
 test('contacts merge Evolution contacts and chats, prefer saved names and remove duplicates', async () => {
