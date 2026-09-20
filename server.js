@@ -866,10 +866,10 @@ app.post('/api/disconnect', authMiddleware, async (req, res) => {
 });
 
 // ── MULTI-INSTANCE (COM LIVRE ACESSO PARA ADMIN) ──────────
-app.get('/api/instances', authMiddleware, (req, res) => {
+app.get('/api/instances', authMiddleware, async (req, res) => {
     const users = loadUsers();
     const user = users.find(u => u.id === req.user.id);
-    let instances = user?.instances || [];
+    let instances = (user?.instances || []).map(instance => ({ ...instance }));
 
     // Se for admin, garante que a instância ADMIN_INSTANCE apareça
     if (user?.role === 'admin' && ADMIN_INSTANCE && !instances.find(i => i.name === ADMIN_INSTANCE)) {
@@ -880,6 +880,19 @@ app.get('/api/instances', authMiddleware, (req, res) => {
 
     const planInfo = getUserPlan(user);
     const maxInst = user?.role === 'admin' ? 999 : (user?.max_instances || planInfo.max_instances || 1);
+    if (EVOLUTION_API_URL && instances.length) {
+        instances = await Promise.all(instances.map(async instance => {
+            try {
+                const state = await axios.get(
+                    `${EVOLUTION_API_URL}/instance/connectionState/${encodeURIComponent(instance.name)}`,
+                    { headers: evoHeaders(), timeout: 5000 }
+                );
+                return { ...instance, connected: state.data?.instance?.state === 'open' };
+            } catch {
+                return { ...instance, connected: false };
+            }
+        }));
+    }
     res.json({ instances, max_instances: maxInst });
 });
 
