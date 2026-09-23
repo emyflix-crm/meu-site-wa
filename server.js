@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const winston = require('winston');
+const { recipientCount, executionUsage, quotaSummary } = require('./quota');
 require('winston-daily-rotate-file');
 
 // ── Security headers ──────────────────────────────────────
@@ -168,17 +169,18 @@ function queueDBWrite(fn) {
 function loadDB() {
     const dir = path.dirname(DB_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [] }, null, 2));
+    if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [], dailyQuotaAdjustments: [] }, null, 2));
     try {
         const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         if (!data.campaigns) data.campaigns = [];
         if (!data.groupsCache) data.groupsCache = {};
         if (!data.crmClients) data.crmClients = [];
         if (!data.messageTemplates) data.messageTemplates = [];
+        if (!data.dailyQuotaAdjustments) data.dailyQuotaAdjustments = [];
         return data;
     } catch (e) {
         logger.error('Failed to parse DB file', { err: e.message });
-        return { schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [] };
+        return { schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [], dailyQuotaAdjustments: [] };
     }
 }
 function saveDB(data) {
@@ -1015,6 +1017,42 @@ app.get('/api/instances/:name/status', authMiddleware, async (req, res) => {
     }
 });
 
+function quotaTimezoneFor(user, db) {
+    return user.quota_timezone || (db.schedules || []).find(s => s.userId === user.id)?.timezone || TIMEZONE;
+}
+
+function quotaDateFor(user, db) {
+    return getTimeInZone(quotaTimezoneFor(user, db)).date;
+}
+
+function quotaViewFor(user, db, date = null, options = {}) {
+    const planInfo = getUserPlan(user);
+    const baseLimit = user.role === 'admin' ? 99999 : (user.max_recipients || planInfo.max_recipients);
+    return quotaSummary({
+        user,
+        date: date || quotaDateFor(user, db),
+        schedules: db.schedules || [],
+        runs: executions.list(),
+        adjustments: db.dailyQuotaAdjustments || [],
+        baseLimit,
+        ...options
+    });
+}
+
+function quotaDatesToValidate(user, db, schedule) {
+    const today = quotaDateFor(user, db);
+    if (schedule.frequency === 'date') return [schedule.schedule_date];
+    if (schedule.frequency !== 'daily') return [today];
+    const fixedDates = (db.schedules || [])
+        .filter(s => s.userId === user.id && s.frequency === 'date' && s.schedule_date >= today)
+        .map(s => s.schedule_date);
+    return [...new Set([today, ...fixedDates])];
+}
+
+function quotaError(summary, planName) {
+    return `Limite diário atingido. Seu ${planName} possui ${summary.limit} envios para ${summary.date} e este agendamento ultrapassaria o saldo em ${summary.over_limit}.`;
+}
+
 // ── SCHEDULES (LIVRE ACESSO PARA ADMIN) ───────────────────
 app.get('/api/schedules', authMiddleware, (req, res) => {
     const db = loadDB();
@@ -1036,15 +1074,7 @@ app.post('/api/schedules', authMiddleware, (req, res) => {
 
     // ADMIN TEM ACESSO 100% LIVRE SEM LIMITES
     if (req.user.role !== 'admin') {
-        const maxRecipients = req.user.max_recipients || planInfo.max_recipients;
         const maxSchedules = req.user.max_schedules || planInfo.max_schedules;
-
-        if (recipients.length > maxRecipients) {
-            return res.status(400).json({
-                error: `Seu ${planInfo.name} permite no máximo ${maxRecipients} grupos por agendamento (você selecionou ${recipients.length}). Faça upgrade para enviar a mais grupos!`
-            });
-        }
-
         const activeSchedulesCount = db.schedules.filter(s => s.userId === req.user.id && s.active).length;
         if (activeSchedulesCount >= maxSchedules) {
             return res.status(400).json({
@@ -1074,6 +1104,13 @@ app.post('/api/schedules', authMiddleware, (req, res) => {
         last_sent: null,
         sent_count: 0
     };
+
+    if (req.user.role !== 'admin') {
+        for (const date of quotaDatesToValidate(req.user, db, schedule)) {
+            const summary = quotaViewFor(req.user, db, date, { replacement: schedule });
+            if (summary.over_limit) return res.status(400).json({ error: quotaError(summary, planInfo.name), quota: summary });
+        }
+    }
     db.schedules.push(schedule);
     saveDB(db);
     res.json({ id: schedule.id, success: true });
@@ -1112,9 +1149,18 @@ app.put('/api/schedules/:id', authMiddleware, async (req, res) => {
         return res.json({ success: true, active: db.schedules[idx].active });
     }
 
+    let next;
     try {
-        db.schedules[idx] = validateEdit(db.schedules[idx], req.body, req.user, getUserPlan(req.user), db.schedules);
+        next = validateEdit(db.schedules[idx], req.body, req.user, getUserPlan(req.user), db.schedules);
     } catch (e) { return res.status(400).json({ error: e.message }); }
+    if (req.user.role !== 'admin') {
+        const planInfo = getUserPlan(req.user);
+        for (const date of quotaDatesToValidate(req.user, db, next)) {
+            const summary = quotaViewFor(req.user, db, date, { excludeScheduleId: db.schedules[idx].id, replacement: next });
+            if (summary.over_limit) return res.status(400).json({ error: quotaError(summary, planInfo.name), quota: summary });
+        }
+    }
+    db.schedules[idx] = next;
     db.schedules[idx].updated_at = new Date().toISOString();
     await saveDB(db);
     res.json({ success: true });
@@ -1138,6 +1184,23 @@ app.delete('/api/schedules/:id', authMiddleware, (req, res) => {
     db.schedules = db.schedules.filter(s => s.id != req.params.id);
     saveDB(db);
     res.json({ success: true });
+});
+
+app.get('/api/quota', authMiddleware, (req, res) => {
+    const db = loadDB();
+    const summary = quotaViewFor(req.user, db);
+    const planInfo = getUserPlan(req.user);
+    const activeSchedules = (db.schedules || []).filter(s => s.userId === req.user.id && s.active).length;
+    const instances = [req.user.instance_name, ...(req.user.instances || []).map(i => typeof i === 'string' ? i : i.name)].filter(Boolean);
+    res.json({
+        ...summary,
+        timezone: quotaTimezoneFor(req.user, db),
+        plan_name: planInfo.name,
+        schedules_used: activeSchedules,
+        schedules_limit: req.user.role === 'admin' ? 9999 : (req.user.max_schedules || planInfo.max_schedules),
+        instances_used: new Set(instances).size,
+        instances_limit: req.user.role === 'admin' ? 999 : (req.user.max_instances || planInfo.max_instances)
+    });
 });
 
 app.get('/api/history', authMiddleware, (req, res) => {
@@ -1264,9 +1327,27 @@ function enqueueSchedule(schedule) {
     if (queuedScheduleIds.has(scheduleKey)) return instanceQueues.get(instanceKey) || Promise.resolve();
     queuedScheduleIds.add(scheduleKey);
     const snapshot = JSON.parse(JSON.stringify(schedule));
+    const quotaDb = loadDB();
+    const owner = loadUsers().find(user => user.id === snapshot.userId);
+    const runDate = owner ? quotaDateFor(owner, quotaDb) : getTimeInZone(snapshot.timezone || TIMEZONE).date;
     let runId;
-    try { runId = executions.create(snapshot, getTimeInZone(snapshot.timezone || TIMEZONE).date); }
+    try { runId = executions.create(snapshot, runDate); }
     catch (error) { queuedScheduleIds.delete(scheduleKey); throw error; }
+
+    if (owner && owner.role !== 'admin') {
+        const quota = quotaViewFor(owner, quotaDb, runDate);
+        const alreadyCommitted = executionUsage(executions.list(), owner.id, runDate, runId);
+        if (alreadyCommitted + recipientCount(snapshot) > quota.limit) {
+            executions.update(runId, {
+                status: 'quota_blocked',
+                finished_at: new Date().toISOString(),
+                diagnostic: `Limite diário de ${quota.limit} envios atingido`
+            });
+            queuedScheduleIds.delete(scheduleKey);
+            logger.warn('Daily quota blocked schedule', { scheduleId: snapshot.id, userId: owner.id, date: runDate, limit: quota.limit });
+            return Promise.resolve();
+        }
+    }
 
     const previous = instanceQueues.get(instanceKey) || Promise.resolve();
     let current;
@@ -1388,6 +1469,7 @@ cron.schedule('* * * * *', () => {
 
 // ── ADMIN COMPLETO: GESTÃO TOTAL DE CLIENTES E LIMITES ────
 app.get('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
+    const quotaDb = loadDB();
     const users = await Promise.all(loadUsers().map(async ({ password, ...u }) => {
         const planInfo = getUserPlan(u);
         const instanceName = u.instance_name || u.instances?.[0]?.name || null;
@@ -1403,6 +1485,7 @@ app.get('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
                 connection_status = 'disconnected';
             }
         }
+        const quota = quotaViewFor(u, quotaDb);
         return {
             ...u,
             connection_status,
@@ -1410,10 +1493,29 @@ app.get('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
             max_instances: u.role === 'admin' ? 999 : (u.max_instances || planInfo.max_instances || 1),
             max_schedules: u.role === 'admin' ? 9999 : (u.max_schedules || planInfo.max_schedules || 2),
             max_recipients: u.role === 'admin' ? 99999 : (u.max_recipients || planInfo.max_recipients || 50),
+            daily_quota: quota,
             instances: u.instances || []
         };
     }));
     res.json(users);
+});
+
+app.post('/admin/users/:id/daily-quota', authMiddleware, adminMiddleware, (req, res) => {
+    const user = loadUsers().find(item => item.id === req.params.id);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (user.role === 'admin') return res.status(400).json({ error: 'O administrador já possui limite ilimitado.' });
+    const amount = Number.parseInt(req.body.amount, 10);
+    if (!Number.isInteger(amount) || amount < 1 || amount > 5000)
+        return res.status(400).json({ error: 'Informe entre 1 e 5000 envios extras.' });
+    const db = loadDB();
+    const date = quotaDateFor(user, db);
+    db.dailyQuotaAdjustments.push({
+        id: Date.now().toString(), userId: user.id, date, amount,
+        reason: String(req.body.reason || 'Reposição manual do administrador').slice(0, 200),
+        created_at: new Date().toISOString(), created_by: req.user.id
+    });
+    saveDB(db);
+    res.json({ success: true, quota: quotaViewFor(user, db, date) });
 });
 
 app.post('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {

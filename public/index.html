@@ -95,6 +95,11 @@
                 <h1>Painel de Controle</h1>
                 <p>Monitore suas mensagens agendadas e disparos em tempo real</p>
             </div>
+            <div class="summary-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:18px;">
+                <div class="summary-card"><span class="summary-icon info">📱</span><div><span>WhatsApps</span><strong id="quota-instances">—</strong><small>utilizados no plano</small></div></div>
+                <div class="summary-card"><span class="summary-icon neutral">⏰</span><div><span>Agendamentos ativos</span><strong id="quota-schedules">—</strong><small>utilizados no plano</small></div></div>
+                <div class="summary-card"><span class="summary-icon success">✉</span><div><span>Envios disponíveis hoje</span><strong id="quota-available">—</strong><small id="quota-detail">saldo diário compartilhado</small></div></div>
+            </div>
             <div class="stats-grid">
                 <div class="stat-card"><div class="stat-icon">⏰</div><div class="stat-number" id="stat-active">0</div><div class="stat-label">Agendamentos Ativos</div></div>
                 <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-number" id="stat-sent">0</div><div class="stat-label">Enviados Hoje</div></div>
@@ -134,6 +139,12 @@
             <div class="page-header">
                 <h1>Criar Agendamento</h1>
                 <p>Configure a mensagem e veja como ela vai chegar no WhatsApp dos seus clientes</p>
+            </div>
+
+            <div id="schedule-quota-bar" style="display:flex;gap:18px;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:var(--text2);">
+                <span>📱 WhatsApps: <strong id="schedule-quota-instances" style="color:var(--text)">—</strong></span>
+                <span>⏰ Agendamentos: <strong id="schedule-quota-schedules" style="color:var(--text)">—</strong></span>
+                <span>✉ Envios disponíveis hoje: <strong id="schedule-quota-available" style="color:var(--primary)">—</strong></span>
             </div>
 
             <div class="schedule-grid-layout">
@@ -464,7 +475,7 @@
                         ✓ 7 dias grátis<br>
                         ✓ 1 WhatsApp<br>
                         ✓ 1 agendamento<br>
-                        ✓ Até 25 grupos
+                        ✓ Até 25 envios por dia
                     </div>
                 </div>
 
@@ -474,7 +485,7 @@
                     <div style="font-size:13px;color:var(--text2);line-height:1.9;">
                         ✓ 1 WhatsApp<br>
                         ✓ 2 agendamentos<br>
-                        ✓ Até 50 grupos
+                        ✓ Até 50 envios por dia
                     </div>
                 </div>
 
@@ -485,7 +496,7 @@
                     <div style="font-size:13px;color:var(--text2);line-height:1.9;">
                         ✓ 2 WhatsApps<br>
                         ✓ 4 agendamentos<br>
-                        ✓ Até 150 grupos
+                        ✓ Até 150 envios por dia
                     </div>
                 </div>
 
@@ -495,7 +506,7 @@
                     <div style="font-size:13px;color:var(--text2);line-height:1.9;">
                         ✓ 4 WhatsApps<br>
                         ✓ 8 agendamentos<br>
-                        ✓ Até 400 grupos
+                        ✓ Até 400 envios por dia
                     </div>
                 </div>
             </div>
@@ -505,7 +516,7 @@
                     <div>
                         <div style="font-size:11px;color:var(--primary);font-weight:800;letter-spacing:1px;margin-bottom:7px;">PLANO SOB MEDIDA</div>
                         <h2 style="font-size:22px;margin-bottom:6px;">⚙️ Monte seu plano personalizado</h2>
-                        <p style="font-size:13px;color:var(--text2);">Escolha quantos WhatsApps e grupos você precisa. O valor é calculado na hora.</p>
+                        <p style="font-size:13px;color:var(--text2);">Escolha quantos WhatsApps e envios diários você precisa. O valor é calculado na hora.</p>
                     </div>
                     <div style="font-size:12px;color:var(--text3);background:var(--bg3);border:1px solid var(--border);padding:8px 12px;border-radius:9px;">2 agendamentos por WhatsApp</div>
                 </div>
@@ -528,23 +539,23 @@
                     </div>
 
                     <div class="form-group" style="margin:0;">
-                        <label for="custom-groups">👥 Limite de grupos</label>
+                        <label for="custom-groups">✉ Envios por dia</label>
                         <select id="custom-groups" onchange="updateCustomPlan()" style="width:100%;">
-                            <option value="50">Até 50 grupos</option>
-                            <option value="100">Até 100 grupos</option>
-                            <option value="150">Até 150 grupos</option>
-                            <option value="200">Até 200 grupos</option>
-                            <option value="250">Até 250 grupos</option>
-                            <option value="300" selected>Até 300 grupos</option>
-                            <option value="350">Até 350 grupos</option>
-                            <option value="400">Até 400 grupos</option>
-                            <option value="450">Até 450 grupos</option>
-                            <option value="500">Até 500 grupos</option>
-                            <option value="600">Até 600 grupos</option>
-                            <option value="700">Até 700 grupos</option>
-                            <option value="800">Até 800 grupos</option>
-                            <option value="900">Até 900 grupos</option>
-                            <option value="1000">Até 1.000 grupos</option>
+                            <option value="50">Até 50 envios por dia</option>
+                            <option value="100">Até 100 envios por dia</option>
+                            <option value="150">Até 150 envios por dia</option>
+                            <option value="200">Até 200 envios por dia</option>
+                            <option value="250">Até 250 envios por dia</option>
+                            <option value="300" selected>Até 300 envios por dia</option>
+                            <option value="350">Até 350 envios por dia</option>
+                            <option value="400">Até 400 envios por dia</option>
+                            <option value="450">Até 450 envios por dia</option>
+                            <option value="500">Até 500 envios por dia</option>
+                            <option value="600">Até 600 envios por dia</option>
+                            <option value="700">Até 700 envios por dia</option>
+                            <option value="800">Até 800 envios por dia</option>
+                            <option value="900">Até 900 envios por dia</option>
+                            <option value="1000">Até 1.000 envios por dia</option>
                         </select>
                     </div>
 
@@ -555,11 +566,11 @@
                 </div>
 
                 <div id="custom-plan-summary" style="margin-top:18px;padding:13px 16px;background:rgba(37,211,102,0.06);border-radius:10px;color:var(--text2);font-size:13px;">
-                    ✓ 3 WhatsApps &nbsp; • &nbsp; até 300 grupos &nbsp; • &nbsp; 6 agendamentos ativos
+                    ✓ 3 WhatsApps &nbsp; • &nbsp; até 300 envios por dia &nbsp; • &nbsp; 6 agendamentos ativos
                 </div>
 
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-top:18px;">
-                    <div style="font-size:11px;color:var(--text3);">R$ 19,90 de acesso + R$ 25 por WhatsApp + R$ 5 por bloco de 50 grupos.</div>
+                    <div style="font-size:11px;color:var(--text3);">R$ 19,90 de acesso + R$ 25 por WhatsApp + R$ 5 por bloco de 50 envios diários.</div>
                     <a id="custom-plan-link" href="#" target="_blank" class="btn btn-primary" style="text-decoration:none;padding:13px 20px;">
                         💬 Solicitar este plano
                     </a>
@@ -735,7 +746,7 @@
             <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
                 <div>
                     <h1>Painel do Administrador</h1>
-                    <p>Controle total: edite planos, altere limites de grupos e agendamentos ou exclua clientes</p>
+                    <p>Controle total: edite planos, altere envios diários e agendamentos ou exclua clientes</p>
                 </div>
                 <div style="display:flex;gap:8px;">
                     <button class="btn btn-primary" onclick="openAdminCreateModal()">＋ Novo Cliente</button>
@@ -833,10 +844,10 @@
             <div class="form-group">
                 <label>Plano</label>
                 <select id="admin-edit-plan" onchange="onAdminPlanChange(this.value)">
-                    <option value="trial">⚡ Trial (7 dias) — Padrão: 1 WA / 1 Agend. / 25 grupos</option>
-                    <option value="start">🥉 Start (R$ 39,90) — Padrão: 1 WA / 2 Agend. / 50 grupos</option>
-                    <option value="pro">🚀 Pro (R$ 79,90) — Padrão: 2 WAs / 4 Agend. / 150 grupos</option>
-                    <option value="diamond">💎 Diamante (R$ 149,90) — Padrão: 4 WAs / 8 Agend. / 400 grupos</option>
+                    <option value="trial">⚡ Trial (7 dias) — Padrão: 1 WA / 1 Agend. / 25 envios por dia</option>
+                    <option value="start">🥉 Start (R$ 39,90) — Padrão: 1 WA / 2 Agend. / 50 envios por dia</option>
+                    <option value="pro">🚀 Pro (R$ 79,90) — Padrão: 2 WAs / 4 Agend. / 150 envios por dia</option>
+                    <option value="diamond">💎 Diamante (R$ 149,90) — Padrão: 4 WAs / 8 Agend. / 400 envios por dia</option>
                     <option value="unlimited">👑 Ilimitado (Admin)</option>
                 </select>
             </div>
@@ -856,9 +867,18 @@
                         <input type="number" id="admin-edit-max-schedules" min="1" max="200">
                     </div>
                     <div>
-                        <label style="font-size:11px;color:var(--text2);margin-bottom:4px;display:block;">Máx. Grupos</label>
+                        <label style="font-size:11px;color:var(--text2);margin-bottom:4px;display:block;">Envios por dia</label>
                         <input type="number" id="admin-edit-max-recipients" min="1" max="5000">
                     </div>
+                </div>
+            </div>
+
+            <div style="background:rgba(37,211,102,.07);border:1px solid rgba(37,211,102,.25);border-radius:12px;padding:16px;margin-bottom:18px;">
+                <label style="font-size:12px;font-weight:700;color:var(--primary);display:block;margin-bottom:6px;">➕ Repor envios somente para hoje</label>
+                <p id="admin-edit-quota-summary" style="font-size:11px;color:var(--text3);margin-bottom:10px;">Carregando saldo diário...</p>
+                <div style="display:flex;gap:8px;">
+                    <input type="number" id="admin-edit-daily-bonus" min="1" max="5000" placeholder="Quantidade de envios" style="flex:1;">
+                    <button type="button" class="btn btn-secondary" onclick="addAdminDailyQuota()">Adicionar hoje</button>
                 </div>
             </div>
 
@@ -909,9 +929,9 @@
                 <label>Plano Inicial</label>
                 <select id="admin-create-plan">
                     <option value="trial">⚡ Trial (7 dias)</option>
-                    <option value="start" selected>🥉 Start (R$ 39,90) — 1 WA / 2 Agend. / 50 grupos</option>
-                    <option value="pro">🚀 Pro (R$ 79,90) — 2 WAs / 4 Agend. / 150 grupos</option>
-                    <option value="diamond">💎 Diamante (R$ 149,90) — 4 WAs / 8 Agend. / 400 grupos</option>
+                    <option value="start" selected>🥉 Start (R$ 39,90) — 1 WA / 2 Agend. / 50 envios por dia</option>
+                    <option value="pro">🚀 Pro (R$ 79,90) — 2 WAs / 4 Agend. / 150 envios por dia</option>
+                    <option value="diamond">💎 Diamante (R$ 149,90) — 4 WAs / 8 Agend. / 400 envios por dia</option>
                     <option value="unlimited">👑 Ilimitado (Admin)</option>
                 </select>
             </div>
