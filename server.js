@@ -23,8 +23,14 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
 const APP_URL          = process.env.APP_URL || `http://localhost:${PORT}`;
 const ADMIN_INSTANCE   = process.env.ADMIN_INSTANCE || 'teste-nascimento';
 const ADMIN_PHONE      = process.env.ADMIN_PHONE || '447840414670';
-const JWT_SECRET       = process.env.JWT_SECRET || 'super_secret_jwt_key_at_least_32_characters_long_123';
+const JWT_SECRET       = process.env.JWT_SECRET;
+const ADMIN_EMAIL      = process.env.ADMIN_EMAIL;
+const ADMIN_PASSWORD   = process.env.ADMIN_PASSWORD;
 const TIMEZONE         = process.env.TZ || 'America/Sao_Paulo';
+
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+    throw new Error('JWT_SECRET deve estar configurado com pelo menos 32 caracteres');
+}
 
 const DB_FILE     = process.env.DB_FILE    || './data.json';
 const USERS_FILE  = process.env.USERS_FILE || './users.json';
@@ -189,9 +195,12 @@ function loadUsers() {
     const dir = path.dirname(USERS_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     if (!fs.existsSync(USERS_FILE)) {
+        if (!ADMIN_EMAIL || !ADMIN_PASSWORD || ADMIN_PASSWORD.length < 12) {
+            throw new Error('ADMIN_EMAIL e ADMIN_PASSWORD (mínimo de 12 caracteres) são obrigatórios na primeira inicialização');
+        }
         const admin = {
-            id: 'admin', name: 'Admin', email: 'admin@wascheduler.com',
-            password: bcrypt.hashSync('Admin123!', 10),
+            id: 'admin', name: 'Admin', email: ADMIN_EMAIL,
+            password: bcrypt.hashSync(ADMIN_PASSWORD, 10),
             role: 'admin', plan: 'unlimited', plan_expires: null,
             created_at: new Date().toISOString(), active: true,
             instance_name: ADMIN_INSTANCE,
@@ -233,6 +242,7 @@ function saveUsers(users) {
 
 // ── In-Memory Fast Cache for Groups & Contacts ─────────────
 const memoryCache = new Map();
+const GROUP_DISK_CACHE_TTL_MS = Number(process.env.GROUP_DISK_CACHE_TTL_MS || 120000);
 function getCache(key) {
     const item = memoryCache.get(key);
     if (item && item.expiresAt > Date.now()) return item.data;
@@ -603,13 +613,18 @@ app.get('/api/groups', authMiddleware, async (req, res) => {
     const db = loadDB();
     if (!db.groupsCache) db.groupsCache = {};
     const diskCached = db.groupsCache[inst];
+    const cachedGroups = Array.isArray(diskCached?.groups) ? diskCached.groups : [];
+    const diskCacheAge = Date.now() - new Date(diskCached?.updatedAt || 0).getTime();
+    const diskCacheFresh = Number.isFinite(diskCacheAge)
+        && diskCacheAge >= 0
+        && diskCacheAge < GROUP_DISK_CACHE_TTL_MS;
 
     if (!forceRefresh) {
         const memCached = getCache(cacheKey);
         if (memCached) return res.json(memCached);
-        if (diskCached && Array.isArray(diskCached.groups) && diskCached.groups.length > 0) {
-            setCache(cacheKey, diskCached.groups, 300000);
-            return res.json(diskCached.groups);
+        if (cachedGroups.length > 0 && diskCacheFresh) {
+            setCache(cacheKey, cachedGroups, GROUP_DISK_CACHE_TTL_MS);
+            return res.json(cachedGroups);
         }
     }
 
@@ -665,9 +680,17 @@ app.get('/api/groups', authMiddleware, async (req, res) => {
         logger.warn('fetchAllGroups failed', { instance: inst, err: allGroupsResult.reason?.message });
     }
 
+    const completeFetch = allGroupsResult.status === 'fulfilled' && allGroups.length > 0;
     const groupIds = new Set(allGroups.map(g => g.id || g.remoteJid).filter(id => id && id.includes('@g.us')));
-    // Se a chamada completa falhar ou vier vazia, mantém as conversas como fallback.
-    if (!groupIds.size) chatMap.forEach((_chat, jid) => groupIds.add(jid));
+    // Uma falha da consulta completa não pode apagar grupos já conhecidos. Nesse caso,
+    // une o cache anterior às conversas recentes e mantém o cache persistente intacto.
+    if (!completeFetch) {
+        cachedGroups.forEach(group => {
+            const jid = group.id || group.remoteJid;
+            if (jid && jid.includes('@g.us')) groupIds.add(jid);
+        });
+        chatMap.forEach((_chat, jid) => groupIds.add(jid));
+    }
 
     const fullMap = new Map(allGroups.map(g => [g.id || g.remoteJid, g]));
     groups = Array.from(groupIds).map(jid => {
@@ -693,9 +716,20 @@ app.get('/api/groups', authMiddleware, async (req, res) => {
 
     if (groups.length > 0) {
         groups.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
-        setCache(cacheKey, groups, 300000);
-        db.groupsCache[inst] = { groups, updatedAt: new Date().toISOString() };
-        saveDB(db);
+        setCache(cacheKey, groups, completeFetch ? GROUP_DISK_CACHE_TTL_MS : 30000);
+        if (completeFetch) {
+            db.groupsCache[inst] = { groups, updatedAt: new Date().toISOString(), source: 'fetchAllGroups' };
+            saveDB(db);
+        }
+
+        logger.info('groups synchronized', {
+            instance: inst,
+            complete: completeFetch,
+            completeCount: allGroups.length,
+            recentChatCount: chatMap.size,
+            previousCacheCount: cachedGroups.length,
+            returnedCount: groups.length
+        });
 
         const unnamed = groups.filter(g => !g.hasName).slice(0, 20);
         if (unnamed.length > 0) {
@@ -715,9 +749,9 @@ app.get('/api/groups', authMiddleware, async (req, res) => {
                         }
                     } catch {}
                 }
-                if (updated) {
+                if (updated && completeFetch) {
                     setCache(cacheKey, groups, 300000);
-                    db.groupsCache[inst] = { groups, updatedAt: new Date().toISOString() };
+                    db.groupsCache[inst] = { groups, updatedAt: new Date().toISOString(), source: 'fetchAllGroups' };
                     saveDB(db);
                 }
             })().catch(() => {});

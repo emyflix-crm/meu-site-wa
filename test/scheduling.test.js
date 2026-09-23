@@ -374,9 +374,10 @@ test('group refresh uses the complete Evolution list even when chats return only
     const context = {
         app: { get(url, ...handlers) { routes[url] = handlers; } },
         authMiddleware() {}, ADMIN_INSTANCE: 'admin-wa', EVOLUTION_API_URL: 'http://evolution',
+        GROUP_DISK_CACHE_TTL_MS: 120000,
         loadUsers: () => [], loadDB: () => structuredClone(db), saveDB: next => { db = structuredClone(next); },
         getCache: () => null, setCache: (_key, value) => { cached = value; }, evoHeaders: () => ({}),
-        logger: { warn() {} },
+        logger: { info() {}, warn() {} },
         axios: {
             post: async () => ({ data: [
                 { remoteJid: '111111111111111111@g.us', name: 'Grupo com conversa', unreadCount: 2 }
