@@ -11,6 +11,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const winston = require('winston');
 const { recipientCount, executionUsage, quotaSummary } = require('./quota');
+const { buildCrmDailyReport, splitWhatsAppText, shouldSendDailyReport } = require('./crm-report');
 require('winston-daily-rotate-file');
 
 // ── Security headers ──────────────────────────────────────
@@ -28,6 +29,10 @@ const JWT_SECRET       = process.env.JWT_SECRET;
 const ADMIN_EMAIL      = process.env.ADMIN_EMAIL;
 const ADMIN_PASSWORD   = process.env.ADMIN_PASSWORD;
 const TIMEZONE         = process.env.TZ || 'America/Sao_Paulo';
+const DAILY_CRM_REPORT_ENABLED = process.env.DAILY_CRM_REPORT_ENABLED !== 'false';
+const DAILY_CRM_REPORT_PHONE = String(process.env.DAILY_CRM_REPORT_PHONE || '447404200049').replace(/\D/g, '');
+const DAILY_CRM_REPORT_TIME = process.env.DAILY_CRM_REPORT_TIME || '09:00';
+const DAILY_CRM_REPORT_TIMEZONE = process.env.DAILY_CRM_REPORT_TIMEZONE || 'Europe/London';
 
 if (!JWT_SECRET || JWT_SECRET.length < 32) {
     throw new Error('JWT_SECRET deve estar configurado com pelo menos 32 caracteres');
@@ -169,7 +174,7 @@ function queueDBWrite(fn) {
 function loadDB() {
     const dir = path.dirname(DB_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [], dailyQuotaAdjustments: [] }, null, 2));
+    if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [], dailyQuotaAdjustments: [], dailyCrmReports: {} }, null, 2));
     try {
         const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         if (!data.campaigns) data.campaigns = [];
@@ -177,10 +182,11 @@ function loadDB() {
         if (!data.crmClients) data.crmClients = [];
         if (!data.messageTemplates) data.messageTemplates = [];
         if (!data.dailyQuotaAdjustments) data.dailyQuotaAdjustments = [];
+        if (!data.dailyCrmReports) data.dailyCrmReports = {};
         return data;
     } catch (e) {
         logger.error('Failed to parse DB file', { err: e.message });
-        return { schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [], dailyQuotaAdjustments: [] };
+        return { schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [], dailyQuotaAdjustments: [], dailyCrmReports: {} };
     }
 }
 function saveDB(data) {
@@ -540,6 +546,84 @@ app.post('/api/admin/crm/clients/:id/send', authMiddleware, adminMiddleware, asy
             code: error.code
         });
         res.status(502).json({ error: 'Não foi possível enviar. Verifique se o WhatsApp está conectado e tente novamente.' });
+    }
+});
+
+async function sendDailyCrmReport({ force = false } = {}) {
+    if (!EVOLUTION_API_URL) throw new Error('Evolution API não configurada');
+    if (!ADMIN_INSTANCE) throw new Error('Instância administrativa não configurada');
+    if (!DAILY_CRM_REPORT_PHONE) throw new Error('Telefone do relatório diário não configurado');
+
+    const today = getTimeInZone(DAILY_CRM_REPORT_TIMEZONE).date;
+    let db = loadDB();
+    const previous = db.dailyCrmReports?.[today];
+    if (!shouldSendDailyReport(previous, force)) {
+        return { success: true, skipped: true, reason: 'already_sent', date: today };
+    }
+
+    const report = buildCrmDailyReport(db.crmClients || [], today);
+    const chunks = splitWhatsAppText(report.text);
+    const startAt = force ? 0 : Math.min(Number(previous?.chunks_sent) || 0, chunks.length);
+    const startedAt = previous?.started_at || new Date().toISOString();
+    const number = `${DAILY_CRM_REPORT_PHONE}@s.whatsapp.net`;
+
+    try {
+        for (let index = startAt; index < chunks.length; index += 1) {
+            await axios.post(`${EVOLUTION_API_URL}/message/sendText/${encodeURIComponent(ADMIN_INSTANCE)}`, {
+                number,
+                text: chunks[index]
+            }, { headers: evoHeaders(), timeout: 15000 });
+
+            db = loadDB();
+            db.dailyCrmReports[today] = {
+                status: 'sending',
+                chunks_sent: index + 1,
+                chunks_total: chunks.length,
+                started_at: startedAt,
+                updated_at: new Date().toISOString(),
+                counts: report.counts
+            };
+            await saveDB(db);
+        }
+
+        db = loadDB();
+        db.dailyCrmReports[today] = {
+            ...(db.dailyCrmReports[today] || {}),
+            status: 'sent',
+            chunks_sent: chunks.length,
+            chunks_total: chunks.length,
+            sent_at: new Date().toISOString(),
+            counts: report.counts
+        };
+        await saveDB(db);
+        return { success: true, date: today, chunks: chunks.length, counts: report.counts };
+    } catch (error) {
+        db = loadDB();
+        db.dailyCrmReports[today] = {
+            ...(db.dailyCrmReports[today] || {}),
+            status: 'failed',
+            started_at: startedAt,
+            updated_at: new Date().toISOString(),
+            last_error: error.code || `HTTP_${error.response?.status || 500}`,
+            counts: report.counts
+        };
+        await saveDB(db);
+        logger.warn('Daily CRM report failed', {
+            date: today,
+            instance: ADMIN_INSTANCE,
+            status: error.response?.status,
+            code: error.code
+        });
+        throw error;
+    }
+}
+
+app.post('/api/admin/crm/daily-report/send', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const result = await sendDailyCrmReport({ force: Boolean(req.body?.force) });
+        res.json(result);
+    } catch {
+        res.status(502).json({ error: 'Não foi possível enviar o relatório. Verifique a conexão do WhatsApp administrativo.' });
     }
 });
 
@@ -1466,6 +1550,22 @@ cron.schedule('* * * * *', () => {
 
     due.forEach(schedule => enqueueSchedule(schedule));
 }, { timezone: 'UTC' });
+
+if (!validTime(DAILY_CRM_REPORT_TIME)) {
+    throw new Error('DAILY_CRM_REPORT_TIME deve estar no formato HH:MM');
+}
+
+if (DAILY_CRM_REPORT_ENABLED) {
+    const [reportHour, reportMinute] = DAILY_CRM_REPORT_TIME.split(':').map(Number);
+    cron.schedule(`${reportMinute} ${reportHour} * * *`, () => {
+        sendDailyCrmReport().catch(error => {
+            logger.error('Daily CRM report job error', {
+                status: error.response?.status,
+                code: error.code
+            });
+        });
+    }, { timezone: DAILY_CRM_REPORT_TIMEZONE });
+}
 
 // ── ADMIN COMPLETO: GESTÃO TOTAL DE CLIENTES E LIMITES ────
 app.get('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
