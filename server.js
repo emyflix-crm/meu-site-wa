@@ -10,6 +10,8 @@ const jwt = require('jsonwebtoken');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const winston = require('winston');
+const { recipientCount, executionUsage, quotaSummary } = require('./quota');
+const { buildCrmDailyReport, splitWhatsAppText, shouldSendDailyReport } = require('./crm-report');
 require('winston-daily-rotate-file');
 
 // ── Security headers ──────────────────────────────────────
@@ -23,8 +25,18 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
 const APP_URL          = process.env.APP_URL || `http://localhost:${PORT}`;
 const ADMIN_INSTANCE   = process.env.ADMIN_INSTANCE || 'teste-nascimento';
 const ADMIN_PHONE      = process.env.ADMIN_PHONE || '447840414670';
-const JWT_SECRET       = process.env.JWT_SECRET || 'super_secret_jwt_key_at_least_32_characters_long_123';
+const JWT_SECRET       = process.env.JWT_SECRET;
+const ADMIN_EMAIL      = process.env.ADMIN_EMAIL;
+const ADMIN_PASSWORD   = process.env.ADMIN_PASSWORD;
 const TIMEZONE         = process.env.TZ || 'America/Sao_Paulo';
+const DAILY_CRM_REPORT_ENABLED = process.env.DAILY_CRM_REPORT_ENABLED !== 'false';
+const DAILY_CRM_REPORT_PHONE = String(process.env.DAILY_CRM_REPORT_PHONE || '447404200049').replace(/\D/g, '');
+const DAILY_CRM_REPORT_TIME = process.env.DAILY_CRM_REPORT_TIME || '09:00';
+const DAILY_CRM_REPORT_TIMEZONE = process.env.DAILY_CRM_REPORT_TIMEZONE || 'Europe/London';
+
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+    throw new Error('JWT_SECRET deve estar configurado com pelo menos 32 caracteres');
+}
 
 const DB_FILE     = process.env.DB_FILE    || './data.json';
 const USERS_FILE  = process.env.USERS_FILE || './users.json';
@@ -162,17 +174,19 @@ function queueDBWrite(fn) {
 function loadDB() {
     const dir = path.dirname(DB_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [] }, null, 2));
+    if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [], dailyQuotaAdjustments: [], dailyCrmReports: {} }, null, 2));
     try {
         const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
         if (!data.campaigns) data.campaigns = [];
         if (!data.groupsCache) data.groupsCache = {};
         if (!data.crmClients) data.crmClients = [];
         if (!data.messageTemplates) data.messageTemplates = [];
+        if (!data.dailyQuotaAdjustments) data.dailyQuotaAdjustments = [];
+        if (!data.dailyCrmReports) data.dailyCrmReports = {};
         return data;
     } catch (e) {
         logger.error('Failed to parse DB file', { err: e.message });
-        return { schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [] };
+        return { schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [], dailyQuotaAdjustments: [], dailyCrmReports: {} };
     }
 }
 function saveDB(data) {
@@ -189,9 +203,12 @@ function loadUsers() {
     const dir = path.dirname(USERS_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     if (!fs.existsSync(USERS_FILE)) {
+        if (!ADMIN_EMAIL || !ADMIN_PASSWORD || ADMIN_PASSWORD.length < 12) {
+            throw new Error('ADMIN_EMAIL e ADMIN_PASSWORD (mínimo de 12 caracteres) são obrigatórios na primeira inicialização');
+        }
         const admin = {
-            id: 'admin', name: 'Admin', email: 'admin@wascheduler.com',
-            password: bcrypt.hashSync('Admin123!', 10),
+            id: 'admin', name: 'Admin', email: ADMIN_EMAIL,
+            password: bcrypt.hashSync(ADMIN_PASSWORD, 10),
             role: 'admin', plan: 'unlimited', plan_expires: null,
             created_at: new Date().toISOString(), active: true,
             instance_name: ADMIN_INSTANCE,
@@ -233,6 +250,7 @@ function saveUsers(users) {
 
 // ── In-Memory Fast Cache for Groups & Contacts ─────────────
 const memoryCache = new Map();
+const GROUP_DISK_CACHE_TTL_MS = Number(process.env.GROUP_DISK_CACHE_TTL_MS || 120000);
 function getCache(key) {
     const item = memoryCache.get(key);
     if (item && item.expiresAt > Date.now()) return item.data;
@@ -531,6 +549,84 @@ app.post('/api/admin/crm/clients/:id/send', authMiddleware, adminMiddleware, asy
     }
 });
 
+async function sendDailyCrmReport({ force = false } = {}) {
+    if (!EVOLUTION_API_URL) throw new Error('Evolution API não configurada');
+    if (!ADMIN_INSTANCE) throw new Error('Instância administrativa não configurada');
+    if (!DAILY_CRM_REPORT_PHONE) throw new Error('Telefone do relatório diário não configurado');
+
+    const today = getTimeInZone(DAILY_CRM_REPORT_TIMEZONE).date;
+    let db = loadDB();
+    const previous = db.dailyCrmReports?.[today];
+    if (!shouldSendDailyReport(previous, force)) {
+        return { success: true, skipped: true, reason: 'already_sent', date: today };
+    }
+
+    const report = buildCrmDailyReport(db.crmClients || [], today);
+    const chunks = splitWhatsAppText(report.text);
+    const startAt = force ? 0 : Math.min(Number(previous?.chunks_sent) || 0, chunks.length);
+    const startedAt = previous?.started_at || new Date().toISOString();
+    const number = `${DAILY_CRM_REPORT_PHONE}@s.whatsapp.net`;
+
+    try {
+        for (let index = startAt; index < chunks.length; index += 1) {
+            await axios.post(`${EVOLUTION_API_URL}/message/sendText/${encodeURIComponent(ADMIN_INSTANCE)}`, {
+                number,
+                text: chunks[index]
+            }, { headers: evoHeaders(), timeout: 15000 });
+
+            db = loadDB();
+            db.dailyCrmReports[today] = {
+                status: 'sending',
+                chunks_sent: index + 1,
+                chunks_total: chunks.length,
+                started_at: startedAt,
+                updated_at: new Date().toISOString(),
+                counts: report.counts
+            };
+            await saveDB(db);
+        }
+
+        db = loadDB();
+        db.dailyCrmReports[today] = {
+            ...(db.dailyCrmReports[today] || {}),
+            status: 'sent',
+            chunks_sent: chunks.length,
+            chunks_total: chunks.length,
+            sent_at: new Date().toISOString(),
+            counts: report.counts
+        };
+        await saveDB(db);
+        return { success: true, date: today, chunks: chunks.length, counts: report.counts };
+    } catch (error) {
+        db = loadDB();
+        db.dailyCrmReports[today] = {
+            ...(db.dailyCrmReports[today] || {}),
+            status: 'failed',
+            started_at: startedAt,
+            updated_at: new Date().toISOString(),
+            last_error: error.code || `HTTP_${error.response?.status || 500}`,
+            counts: report.counts
+        };
+        await saveDB(db);
+        logger.warn('Daily CRM report failed', {
+            date: today,
+            instance: ADMIN_INSTANCE,
+            status: error.response?.status,
+            code: error.code
+        });
+        throw error;
+    }
+}
+
+app.post('/api/admin/crm/daily-report/send', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const result = await sendDailyCrmReport({ force: Boolean(req.body?.force) });
+        res.json(result);
+    } catch {
+        res.status(502).json({ error: 'Não foi possível enviar o relatório. Verifique a conexão do WhatsApp administrativo.' });
+    }
+});
+
 app.get('/api/admin/crm/templates', authMiddleware, adminMiddleware, (req, res) => {
     const db = loadDB();
     const templates = (db.messageTemplates || [])
@@ -603,13 +699,18 @@ app.get('/api/groups', authMiddleware, async (req, res) => {
     const db = loadDB();
     if (!db.groupsCache) db.groupsCache = {};
     const diskCached = db.groupsCache[inst];
+    const cachedGroups = Array.isArray(diskCached?.groups) ? diskCached.groups : [];
+    const diskCacheAge = Date.now() - new Date(diskCached?.updatedAt || 0).getTime();
+    const diskCacheFresh = Number.isFinite(diskCacheAge)
+        && diskCacheAge >= 0
+        && diskCacheAge < GROUP_DISK_CACHE_TTL_MS;
 
     if (!forceRefresh) {
         const memCached = getCache(cacheKey);
         if (memCached) return res.json(memCached);
-        if (diskCached && Array.isArray(diskCached.groups) && diskCached.groups.length > 0) {
-            setCache(cacheKey, diskCached.groups, 300000);
-            return res.json(diskCached.groups);
+        if (cachedGroups.length > 0 && diskCacheFresh) {
+            setCache(cacheKey, cachedGroups, GROUP_DISK_CACHE_TTL_MS);
+            return res.json(cachedGroups);
         }
     }
 
@@ -665,9 +766,17 @@ app.get('/api/groups', authMiddleware, async (req, res) => {
         logger.warn('fetchAllGroups failed', { instance: inst, err: allGroupsResult.reason?.message });
     }
 
+    const completeFetch = allGroupsResult.status === 'fulfilled' && allGroups.length > 0;
     const groupIds = new Set(allGroups.map(g => g.id || g.remoteJid).filter(id => id && id.includes('@g.us')));
-    // Se a chamada completa falhar ou vier vazia, mantém as conversas como fallback.
-    if (!groupIds.size) chatMap.forEach((_chat, jid) => groupIds.add(jid));
+    // Uma falha da consulta completa não pode apagar grupos já conhecidos. Nesse caso,
+    // une o cache anterior às conversas recentes e mantém o cache persistente intacto.
+    if (!completeFetch) {
+        cachedGroups.forEach(group => {
+            const jid = group.id || group.remoteJid;
+            if (jid && jid.includes('@g.us')) groupIds.add(jid);
+        });
+        chatMap.forEach((_chat, jid) => groupIds.add(jid));
+    }
 
     const fullMap = new Map(allGroups.map(g => [g.id || g.remoteJid, g]));
     groups = Array.from(groupIds).map(jid => {
@@ -693,9 +802,20 @@ app.get('/api/groups', authMiddleware, async (req, res) => {
 
     if (groups.length > 0) {
         groups.sort((a, b) => (b.lastMessageTimestamp || 0) - (a.lastMessageTimestamp || 0));
-        setCache(cacheKey, groups, 300000);
-        db.groupsCache[inst] = { groups, updatedAt: new Date().toISOString() };
-        saveDB(db);
+        setCache(cacheKey, groups, completeFetch ? GROUP_DISK_CACHE_TTL_MS : 30000);
+        if (completeFetch) {
+            db.groupsCache[inst] = { groups, updatedAt: new Date().toISOString(), source: 'fetchAllGroups' };
+            saveDB(db);
+        }
+
+        logger.info('groups synchronized', {
+            instance: inst,
+            complete: completeFetch,
+            completeCount: allGroups.length,
+            recentChatCount: chatMap.size,
+            previousCacheCount: cachedGroups.length,
+            returnedCount: groups.length
+        });
 
         const unnamed = groups.filter(g => !g.hasName).slice(0, 20);
         if (unnamed.length > 0) {
@@ -715,9 +835,9 @@ app.get('/api/groups', authMiddleware, async (req, res) => {
                         }
                     } catch {}
                 }
-                if (updated) {
+                if (updated && completeFetch) {
                     setCache(cacheKey, groups, 300000);
-                    db.groupsCache[inst] = { groups, updatedAt: new Date().toISOString() };
+                    db.groupsCache[inst] = { groups, updatedAt: new Date().toISOString(), source: 'fetchAllGroups' };
                     saveDB(db);
                 }
             })().catch(() => {});
@@ -981,6 +1101,42 @@ app.get('/api/instances/:name/status', authMiddleware, async (req, res) => {
     }
 });
 
+function quotaTimezoneFor(user, db) {
+    return user.quota_timezone || (db.schedules || []).find(s => s.userId === user.id)?.timezone || TIMEZONE;
+}
+
+function quotaDateFor(user, db) {
+    return getTimeInZone(quotaTimezoneFor(user, db)).date;
+}
+
+function quotaViewFor(user, db, date = null, options = {}) {
+    const planInfo = getUserPlan(user);
+    const baseLimit = user.role === 'admin' ? 99999 : (user.max_recipients || planInfo.max_recipients);
+    return quotaSummary({
+        user,
+        date: date || quotaDateFor(user, db),
+        schedules: db.schedules || [],
+        runs: executions.list(),
+        adjustments: db.dailyQuotaAdjustments || [],
+        baseLimit,
+        ...options
+    });
+}
+
+function quotaDatesToValidate(user, db, schedule) {
+    const today = quotaDateFor(user, db);
+    if (schedule.frequency === 'date') return [schedule.schedule_date];
+    if (schedule.frequency !== 'daily') return [today];
+    const fixedDates = (db.schedules || [])
+        .filter(s => s.userId === user.id && s.frequency === 'date' && s.schedule_date >= today)
+        .map(s => s.schedule_date);
+    return [...new Set([today, ...fixedDates])];
+}
+
+function quotaError(summary, planName) {
+    return `Limite diário atingido. Seu ${planName} possui ${summary.limit} envios para ${summary.date} e este agendamento ultrapassaria o saldo em ${summary.over_limit}.`;
+}
+
 // ── SCHEDULES (LIVRE ACESSO PARA ADMIN) ───────────────────
 app.get('/api/schedules', authMiddleware, (req, res) => {
     const db = loadDB();
@@ -1002,15 +1158,7 @@ app.post('/api/schedules', authMiddleware, (req, res) => {
 
     // ADMIN TEM ACESSO 100% LIVRE SEM LIMITES
     if (req.user.role !== 'admin') {
-        const maxRecipients = req.user.max_recipients || planInfo.max_recipients;
         const maxSchedules = req.user.max_schedules || planInfo.max_schedules;
-
-        if (recipients.length > maxRecipients) {
-            return res.status(400).json({
-                error: `Seu ${planInfo.name} permite no máximo ${maxRecipients} grupos por agendamento (você selecionou ${recipients.length}). Faça upgrade para enviar a mais grupos!`
-            });
-        }
-
         const activeSchedulesCount = db.schedules.filter(s => s.userId === req.user.id && s.active).length;
         if (activeSchedulesCount >= maxSchedules) {
             return res.status(400).json({
@@ -1040,6 +1188,13 @@ app.post('/api/schedules', authMiddleware, (req, res) => {
         last_sent: null,
         sent_count: 0
     };
+
+    if (req.user.role !== 'admin') {
+        for (const date of quotaDatesToValidate(req.user, db, schedule)) {
+            const summary = quotaViewFor(req.user, db, date, { replacement: schedule });
+            if (summary.over_limit) return res.status(400).json({ error: quotaError(summary, planInfo.name), quota: summary });
+        }
+    }
     db.schedules.push(schedule);
     saveDB(db);
     res.json({ id: schedule.id, success: true });
@@ -1078,9 +1233,18 @@ app.put('/api/schedules/:id', authMiddleware, async (req, res) => {
         return res.json({ success: true, active: db.schedules[idx].active });
     }
 
+    let next;
     try {
-        db.schedules[idx] = validateEdit(db.schedules[idx], req.body, req.user, getUserPlan(req.user), db.schedules);
+        next = validateEdit(db.schedules[idx], req.body, req.user, getUserPlan(req.user), db.schedules);
     } catch (e) { return res.status(400).json({ error: e.message }); }
+    if (req.user.role !== 'admin') {
+        const planInfo = getUserPlan(req.user);
+        for (const date of quotaDatesToValidate(req.user, db, next)) {
+            const summary = quotaViewFor(req.user, db, date, { excludeScheduleId: db.schedules[idx].id, replacement: next });
+            if (summary.over_limit) return res.status(400).json({ error: quotaError(summary, planInfo.name), quota: summary });
+        }
+    }
+    db.schedules[idx] = next;
     db.schedules[idx].updated_at = new Date().toISOString();
     await saveDB(db);
     res.json({ success: true });
@@ -1104,6 +1268,23 @@ app.delete('/api/schedules/:id', authMiddleware, (req, res) => {
     db.schedules = db.schedules.filter(s => s.id != req.params.id);
     saveDB(db);
     res.json({ success: true });
+});
+
+app.get('/api/quota', authMiddleware, (req, res) => {
+    const db = loadDB();
+    const summary = quotaViewFor(req.user, db);
+    const planInfo = getUserPlan(req.user);
+    const activeSchedules = (db.schedules || []).filter(s => s.userId === req.user.id && s.active).length;
+    const instances = [req.user.instance_name, ...(req.user.instances || []).map(i => typeof i === 'string' ? i : i.name)].filter(Boolean);
+    res.json({
+        ...summary,
+        timezone: quotaTimezoneFor(req.user, db),
+        plan_name: planInfo.name,
+        schedules_used: activeSchedules,
+        schedules_limit: req.user.role === 'admin' ? 9999 : (req.user.max_schedules || planInfo.max_schedules),
+        instances_used: new Set(instances).size,
+        instances_limit: req.user.role === 'admin' ? 999 : (req.user.max_instances || planInfo.max_instances)
+    });
 });
 
 app.get('/api/history', authMiddleware, (req, res) => {
@@ -1230,9 +1411,27 @@ function enqueueSchedule(schedule) {
     if (queuedScheduleIds.has(scheduleKey)) return instanceQueues.get(instanceKey) || Promise.resolve();
     queuedScheduleIds.add(scheduleKey);
     const snapshot = JSON.parse(JSON.stringify(schedule));
+    const quotaDb = loadDB();
+    const owner = loadUsers().find(user => user.id === snapshot.userId);
+    const runDate = owner ? quotaDateFor(owner, quotaDb) : getTimeInZone(snapshot.timezone || TIMEZONE).date;
     let runId;
-    try { runId = executions.create(snapshot, getTimeInZone(snapshot.timezone || TIMEZONE).date); }
+    try { runId = executions.create(snapshot, runDate); }
     catch (error) { queuedScheduleIds.delete(scheduleKey); throw error; }
+
+    if (owner && owner.role !== 'admin') {
+        const quota = quotaViewFor(owner, quotaDb, runDate);
+        const alreadyCommitted = executionUsage(executions.list(), owner.id, runDate, runId);
+        if (alreadyCommitted + recipientCount(snapshot) > quota.limit) {
+            executions.update(runId, {
+                status: 'quota_blocked',
+                finished_at: new Date().toISOString(),
+                diagnostic: `Limite diário de ${quota.limit} envios atingido`
+            });
+            queuedScheduleIds.delete(scheduleKey);
+            logger.warn('Daily quota blocked schedule', { scheduleId: snapshot.id, userId: owner.id, date: runDate, limit: quota.limit });
+            return Promise.resolve();
+        }
+    }
 
     const previous = instanceQueues.get(instanceKey) || Promise.resolve();
     let current;
@@ -1352,8 +1551,25 @@ cron.schedule('* * * * *', () => {
     due.forEach(schedule => enqueueSchedule(schedule));
 }, { timezone: 'UTC' });
 
+if (!validTime(DAILY_CRM_REPORT_TIME)) {
+    throw new Error('DAILY_CRM_REPORT_TIME deve estar no formato HH:MM');
+}
+
+if (DAILY_CRM_REPORT_ENABLED) {
+    const [reportHour, reportMinute] = DAILY_CRM_REPORT_TIME.split(':').map(Number);
+    cron.schedule(`${reportMinute} ${reportHour} * * *`, () => {
+        sendDailyCrmReport().catch(error => {
+            logger.error('Daily CRM report job error', {
+                status: error.response?.status,
+                code: error.code
+            });
+        });
+    }, { timezone: DAILY_CRM_REPORT_TIMEZONE });
+}
+
 // ── ADMIN COMPLETO: GESTÃO TOTAL DE CLIENTES E LIMITES ────
 app.get('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
+    const quotaDb = loadDB();
     const users = await Promise.all(loadUsers().map(async ({ password, ...u }) => {
         const planInfo = getUserPlan(u);
         const instanceName = u.instance_name || u.instances?.[0]?.name || null;
@@ -1369,6 +1585,7 @@ app.get('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
                 connection_status = 'disconnected';
             }
         }
+        const quota = quotaViewFor(u, quotaDb);
         return {
             ...u,
             connection_status,
@@ -1376,10 +1593,29 @@ app.get('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
             max_instances: u.role === 'admin' ? 999 : (u.max_instances || planInfo.max_instances || 1),
             max_schedules: u.role === 'admin' ? 9999 : (u.max_schedules || planInfo.max_schedules || 2),
             max_recipients: u.role === 'admin' ? 99999 : (u.max_recipients || planInfo.max_recipients || 50),
+            daily_quota: quota,
             instances: u.instances || []
         };
     }));
     res.json(users);
+});
+
+app.post('/admin/users/:id/daily-quota', authMiddleware, adminMiddleware, (req, res) => {
+    const user = loadUsers().find(item => item.id === req.params.id);
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (user.role === 'admin') return res.status(400).json({ error: 'O administrador já possui limite ilimitado.' });
+    const amount = Number.parseInt(req.body.amount, 10);
+    if (!Number.isInteger(amount) || amount < 1 || amount > 5000)
+        return res.status(400).json({ error: 'Informe entre 1 e 5000 envios extras.' });
+    const db = loadDB();
+    const date = quotaDateFor(user, db);
+    db.dailyQuotaAdjustments.push({
+        id: Date.now().toString(), userId: user.id, date, amount,
+        reason: String(req.body.reason || 'Reposição manual do administrador').slice(0, 200),
+        created_at: new Date().toISOString(), created_by: req.user.id
+    });
+    saveDB(db);
+    res.json({ success: true, quota: quotaViewFor(user, db, date) });
 });
 
 app.post('/admin/users', authMiddleware, adminMiddleware, async (req, res) => {

@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const { createExecutionStore, summarize, validateEdit, diagnostic } = require('../execution-store');
+const { executionUsage, quotaSummary } = require('../quota');
 const user = { id: 'u1', role: 'user', instance_name: 'wa1' };
 const plan = { max_recipients: 5, max_schedules: 2 };
 const original = { id: 1, userId: 'u1', userEmail: 'u@example.com', active: true,
@@ -72,7 +73,8 @@ function routeHarness() {
         [method, (url, ...handlers) => { routes[method + ' ' + url] = handlers; }])),
         authMiddleware() {}, adminMiddleware() {}, loadDB: () => structuredClone(db), saveDB: async next => { db = structuredClone(next); },
         queuedScheduleIds: busy, validateEdit, validTime: t => /^([01]\d|2[0-3]):[0-5]\d$/.test(t),
-        getUserPlan: () => plan, executions: store, summarize, getTimeInZone: () => ({ date: '2026-09-16' }), TIMEZONE: 'UTC' };
+        getUserPlan: () => plan, executions: store, summarize, getTimeInZone: () => ({ date: '2026-09-16' }), TIMEZONE: 'UTC',
+        quotaDatesToValidate: () => ['2026-09-16'], quotaViewFor: () => ({ over_limit: 0 }), quotaError: () => 'quota' };
     vm.runInNewContext(server.slice(server.indexOf("app.get('/api/schedules'"), server.indexOf("app.post('/api/upload'")), context);
     return { routes, busy, db: () => db, async call(key, body = {}, who = user) {
         let status = 200, data;
@@ -144,6 +146,8 @@ test('same WhatsApp jobs serialize, duplicate enqueue is ignored, other WhatsApp
     const context = { require: () => ({ createExecutionStore, summarize, validateEdit, diagnostic }),
         path, DB_FILE: path.join(dir, 'db.json'), ADMIN_INSTANCE: '',
         getTimeInZone: () => ({ date: '2026-09-16' }), logger: { error() {} },
+        loadDB: () => ({ schedules: [], dailyQuotaAdjustments: [] }),
+        loadUsers: () => [{ id: 'u1', role: 'admin' }], quotaDateFor: () => '2026-09-16',
         sendToAll: s => { started.push(s.id); return new Promise(resolve => releases.push(resolve)); } };
     vm.runInNewContext(server.slice(server.indexOf('const instanceQueues ='), server.indexOf('async function sendToAll(')), context);
     const first = context.enqueueSchedule(original);
@@ -157,6 +161,29 @@ test('same WhatsApp jobs serialize, duplicate enqueue is ignored, other WhatsApp
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(started, [1, 3, 2]);
     releases[2](); await second;
+    fs.rmSync(dir, { recursive: true });
+});
+
+test('shared daily runtime quota cannot be multiplied across two WhatsApps', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-daily-quota-test-'));
+    const twoRecipients = id => ({ ...structuredClone(original), id, instance_name: `wa-${id}`, recipients: [
+        { id: `${id}-a`, name: 'A', type: 'group' }, { id: `${id}-b`, name: 'B', type: 'group' }
+    ] });
+    const context = {
+        require: () => ({ createExecutionStore, summarize, validateEdit, diagnostic }), path,
+        DB_FILE: path.join(dir, 'db.json'), ADMIN_INSTANCE: '', TIMEZONE: 'UTC',
+        loadDB: () => ({ schedules: [], dailyQuotaAdjustments: [] }),
+        loadUsers: () => [{ id: 'u1', role: 'user', max_recipients: 3 }],
+        quotaDateFor: () => '2026-09-23', quotaViewFor: () => ({ limit: 3 }),
+        recipientCount: schedule => schedule.recipients.length, executionUsage,
+        getTimeInZone: () => ({ date: '2026-09-23' }), logger: { error() {}, warn() {} },
+        sendToAll: async () => {}
+    };
+    vm.runInNewContext(server.slice(server.indexOf('const instanceQueues ='), server.indexOf('async function sendToAll(')), context);
+    await Promise.all([context.enqueueSchedule(twoRecipients(1)), context.enqueueSchedule(twoRecipients(2))]);
+    const runs = JSON.parse(fs.readFileSync(path.join(dir, 'executions.json'), 'utf8'));
+    assert.equal(runs.length, 2);
+    assert.equal(runs.filter(run => run.status === 'quota_blocked').length, 1);
     fs.rmSync(dir, { recursive: true });
 });
 
@@ -174,6 +201,7 @@ test('editor with mocked DOM loads values and submits PUT with modified payload'
         document: { getElementById: element, querySelector: element, querySelectorAll: () => [] },
         showPage() {}, showToast() {}, renderMediaList() {}, updateSelectedTags() {}, updateTZPreview() {},
         selectMediaDelay() {}, loadGroupsForInstance: async () => {}, renderRecipients() {}, loadSchedules() {},
+        recipientSelectionLimit: () => 5,
         setTimeout() {},
         authFetch: async (url, options) => {
             if (!options) return { ok: true, json: async () => [{ ...original, media_url: 'https://example.com/a.jpg', media_type: 'image', media_texts: ['old caption'] }] };
@@ -194,6 +222,34 @@ test('editor with mocked DOM loads values and submits PUT with modified payload'
     assert.equal(body.recipients[0].id, 'b'); assert.equal(body.media_texts[0], 'new caption');
     assert.equal(body.media_url, 'https://example.com/replaced.jpg');
     assert.equal(context.editingSchedule, null);
+    assert.match(client, /function replaceMedia\(index\)/);
+    assert.match(client, /mediaItems\[replacingMediaIndex\] = uploaded/);
+});
+
+test('daily quota keeps paused reservations, refunds untouched deletion and consumes a started deletion', () => {
+    const paused = { ...structuredClone(original), active: false, recipients: Array.from({ length: 3 }, (_, i) => ({ id: String(i) })) };
+    const base = { user, date: '2026-09-23', baseLimit: 5, adjustments: [], runs: [] };
+    assert.deepEqual(quotaSummary({ ...base, schedules: [paused] }), {
+        date: '2026-09-23', base_limit: 5, bonus: 0, limit: 5, reserved: 3,
+        consumed_after_deletion: 0, committed: 3, available: 2, over_limit: 0
+    });
+    assert.equal(quotaSummary({ ...base, schedules: [] }).available, 5);
+    const finished = { id: 'run', schedule_id: paused.id, userId: user.id, date: base.date,
+        status: 'finished', snapshot: paused, results: [{ status: 'accepted' }] };
+    const deletedAfterStart = quotaSummary({ ...base, schedules: [], runs: [finished] });
+    assert.equal(deletedAfterStart.available, 2);
+    assert.equal(deletedAfterStart.consumed_after_deletion, 3);
+});
+
+test('disconnected runs refund the reservation and admin daily extras expire by date', () => {
+    const snapshot = { ...structuredClone(original), recipients: [{ id: '1' }, { id: '2' }] };
+    const blocked = { id: 'blocked', schedule_id: 99, userId: user.id, date: '2026-09-23', status: 'blocked', snapshot };
+    assert.equal(executionUsage([blocked], user.id, '2026-09-23'), 0);
+    const summary = quotaSummary({ user, date: '2026-09-23', schedules: [{ ...snapshot, id: 99, userId: user.id, frequency: 'daily' }], runs: [blocked], baseLimit: 5,
+        adjustments: [{ userId: user.id, date: '2026-09-23', amount: 4 }, { userId: user.id, date: '2026-09-22', amount: 9 }] });
+    assert.equal(summary.limit, 9);
+    assert.equal(summary.available, 9);
+    assert.equal(summary.reserved, 0);
 });
 
 function crmRouteHarness() {
@@ -374,9 +430,10 @@ test('group refresh uses the complete Evolution list even when chats return only
     const context = {
         app: { get(url, ...handlers) { routes[url] = handlers; } },
         authMiddleware() {}, ADMIN_INSTANCE: 'admin-wa', EVOLUTION_API_URL: 'http://evolution',
+        GROUP_DISK_CACHE_TTL_MS: 120000,
         loadUsers: () => [], loadDB: () => structuredClone(db), saveDB: next => { db = structuredClone(next); },
         getCache: () => null, setCache: (_key, value) => { cached = value; }, evoHeaders: () => ({}),
-        logger: { warn() {} },
+        logger: { info() {}, warn() {} },
         axios: {
             post: async () => ({ data: [
                 { remoteJid: '111111111111111111@g.us', name: 'Grupo com conversa', unreadCount: 2 }
