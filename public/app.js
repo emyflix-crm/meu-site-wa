@@ -1305,7 +1305,7 @@ async function loadHistory() {
         }
         const states = { scheduled: ['Aguardando', 'waiting'], paused: ['Pausado', 'paused'], queued: ['Na fila', 'running'],
             sending: ['Em andamento', 'running'], finished: ['Concluído', 'success'], blocked: ['Não iniciado', 'danger'],
-            interrupted: ['Interrompido', 'danger'], untracked: ['Sem execução', 'paused'] };
+            cancelled: ['Cancelado', 'paused'], interrupted: ['Interrompido', 'danger'], untracked: ['Sem execução', 'paused'] };
         list.innerHTML = `<div class="responsive-table"><table class="app-table history-table"><thead><tr>
             <th>Horário</th><th>Conta</th><th>Instância</th><th>Destinatários</th><th>Progresso</th><th>Status</th><th>Ações</th>
         </tr></thead><tbody>${rows.map(run => {
@@ -2334,3 +2334,4 @@ function showToast(msg, type = 'success') {
 function escHtml(str) {
     return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
 }
+

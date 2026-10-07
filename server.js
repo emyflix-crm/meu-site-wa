@@ -1049,9 +1049,10 @@ app.put('/api/schedules/:id', authMiddleware, async (req, res) => {
     const db = loadDB();
     const idx = db.schedules.findIndex(s => s.id == req.params.id && (req.user.role === 'admin' || s.userId === req.user.id));
     if (idx === -1) return res.status(404).json({ error: 'Não encontrado' });
-    if (queuedScheduleIds.has(String(req.params.id)))
+    const pauseOnly = req.body.active === false && Object.keys(req.body).every(key => ['active', 'expected_updated_at'].includes(key));
+    if (!pauseOnly && queuedScheduleIds.has(String(req.params.id)))
         return res.status(409).json({ error: 'Este agendamento está na fila ou enviando. Aguarde finalizar para editar.' });
-    if (req.body.expected_updated_at !== undefined && req.body.expected_updated_at !== (db.schedules[idx].updated_at || db.schedules[idx].created_at))
+    if (!pauseOnly && req.body.expected_updated_at !== undefined && req.body.expected_updated_at !== (db.schedules[idx].updated_at || db.schedules[idx].created_at))
         return res.status(409).json({ error: 'O agendamento mudou. Atualize a página antes de editar.' });
     if (req.body.time && !validTime(req.body.time)) return res.status(400).json({ error: 'Formato HH:MM inválido' });
 
@@ -1073,6 +1074,7 @@ app.put('/api/schedules/:id', authMiddleware, async (req, res) => {
         if (typeof req.body.active !== 'boolean')
             return res.status(400).json({ error: 'Estado do agendamento inválido.' });
         db.schedules[idx].active = req.body.active;
+        if (!req.body.active) db.schedules[idx].stop_generation = (db.schedules[idx].stop_generation || 0) + 1;
         db.schedules[idx].updated_at = new Date().toISOString();
         await saveDB(db);
         return res.json({ success: true, active: db.schedules[idx].active });
@@ -1090,10 +1092,9 @@ app.delete('/api/schedules/:id', authMiddleware, (req, res) => {
     const db = loadDB();
     const schedule = db.schedules.find(s => s.id == req.params.id && (req.user.role === 'admin' || s.userId === req.user.id));
     if (!schedule) return res.status(404).json({ error: 'Não encontrado' });
-    if (queuedScheduleIds.has(String(schedule.id)))
-        return res.status(409).json({ error: 'Aguarde o envio finalizar antes de excluir.' });
+    const sending = queuedScheduleIds.has(String(schedule.id));
 
-    if (schedule.media_url) {
+    if (schedule.media_url && !sending) {
         try {
             const fileName = path.basename(schedule.media_url.split('?')[0]);
             const localFile = path.join(UPLOADS_DIR, fileName);
@@ -1145,7 +1146,7 @@ app.post('/api/upload', authMiddleware, upload.single('media'), (req, res) => {
 });
 
 // ── SEND ENGINE ───────────────────────────────────────────
-async function sendOne(schedule, recipient) {
+async function sendOne(schedule, recipient, canContinue = () => true) {
     const inst = schedule.instance_name || ADMIN_INSTANCE;
     if (!inst) return false;
 
@@ -1163,7 +1164,16 @@ async function sendOne(schedule, recipient) {
         });
     }
 
+    function checkCancellation() {
+        if (!canContinue()) {
+            const error = new Error('Execução cancelada');
+            error.code = 'SCHEDULE_CANCELLED';
+            throw error;
+        }
+    }
+
     async function sendMediaItem(mediaUrl, mediaType, caption) {
+        checkCancellation();
         const isVideo = mediaType === 'video';
         const ext = path.extname(mediaUrl.split('?')[0]).toLowerCase();
         let mimetype = isVideo ? 'video/mp4' : 'image/jpeg';
@@ -1185,10 +1195,12 @@ async function sendOne(schedule, recipient) {
             await sendMediaItem(allMedias[0].url, allMedias[0].type, allMedias[0].text || schedule.message);
             const delayMs = schedule.media_delay_ms || 0;
             for (let i = 1; i < allMedias.length; i++) {
-                if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+                if (delayMs > 0) await waitForSchedule(delayMs, canContinue);
+                checkCancellation();
                 await sendMediaItem(allMedias[i].url, allMedias[i].type, allMedias[i].text || '');
             }
         } else {
+            checkCancellation();
             const response = await axios.post(`${EVOLUTION_API_URL}/message/sendText/${inst}`, { number, text: schedule.message }, { headers: evoHeaders() });
             mediaResults.push({ type: 'text', status: 'accepted', message_id: response.data?.key?.id });
         }
@@ -1202,6 +1214,7 @@ async function sendOne(schedule, recipient) {
         await saveDB(db);
         return { status: 'accepted', media: mediaResults };
     } catch (e) {
+        if (e.code === 'SCHEDULE_CANCELLED') return { status: 'cancelled', media: mediaResults };
         const db = loadDB();
         db.history.push({
             id: Date.now(), schedule_id: schedule.id, userId: schedule.userId,
@@ -1253,6 +1266,12 @@ function enqueueSchedule(schedule) {
 }
 
 async function sendToAll(schedule, runId) {
+    const canContinue = () => {
+        const current = loadDB().schedules.find(s => String(s.id) === String(schedule.id));
+        return Boolean(current?.active && (current.stop_generation || 0) === (schedule.stop_generation || 0));
+    };
+    const stop = () => executions.update(runId, { status: 'cancelled', finished_at: new Date().toISOString() });
+    if (!canContinue()) { stop(); return; }
     executions.update(runId, { status: 'sending', started_at: new Date().toISOString() });
     const inst = schedule.instance_name || ADMIN_INSTANCE;
     if (inst && EVOLUTION_API_URL) {
@@ -1280,14 +1299,17 @@ async function sendToAll(schedule, runId) {
     }
 
     for (let i = 0; i < schedule.recipients.length; i++) {
+        if (!canContinue()) { stop(); return; }
         if (i > 0) {
             const delay = Math.floor(Math.random() * 30001) + 30000;
-            await new Promise(r => setTimeout(r, delay));
+            await waitForSchedule(delay, canContinue);
         }
-        const result = await sendOne(schedule, schedule.recipients[i]);
+        if (!canContinue()) { stop(); return; }
+        const result = await sendOne(schedule, schedule.recipients[i], canContinue);
         executions.result(runId, { recipient_id: schedule.recipients[i].id,
             recipient_name: schedule.recipients[i].name, at: new Date().toISOString(),
             ...(result || { status: 'error', diagnostic: { reason: 'WhatsApp não configurado' } }) });
+        if (result?.status === 'cancelled' || !canContinue()) { stop(); return; }
     }
 
     const db = loadDB();
@@ -1299,6 +1321,16 @@ async function sendToAll(schedule, runId) {
     }
     await saveDB(db);
     executions.update(runId, { status: 'finished', finished_at: new Date().toISOString() });
+}
+
+// Poll while waiting so pausing also releases the instance queue promptly.
+async function waitForSchedule(milliseconds, canContinue) {
+    let remaining = milliseconds;
+    while (remaining > 0 && canContinue()) {
+        const step = Math.min(remaining, 1000);
+        await new Promise(resolve => setTimeout(resolve, step));
+        remaining -= step;
+    }
 }
 
 // ── CRON ENGINE ───────────────────────────────────────────
@@ -1579,3 +1611,4 @@ app.post('/auth/register', async (req, res) => {
 });
 
 app.listen(PORT, () => logger.info(`WA Scheduler started on port ${PORT}`, { timezone: TIMEZONE }));
+

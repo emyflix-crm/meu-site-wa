@@ -96,12 +96,17 @@ test('pause only changes status and supports legacy recipient records', async ()
     assert.equal(h.db().schedules[0].active, false);
     assert.deepEqual(h.db().schedules[0].recipients, [{ id: 'legacy-group' }]);
 });
-test('busy edit/delete rejected by server; foreign owner cannot edit', async () => {
+test('busy edit rejected, pause/delete allowed; foreign owner cannot mutate', async () => {
     const h = routeHarness();
     h.busy.add('1');
     assert.equal((await h.call('put /api/schedules/:id', { message: 'bad' })).status, 409);
-    assert.equal((await h.call('delete /api/schedules/:id')).status, 409);
+    assert.equal((await h.call('put /api/schedules/:id', { active: false, expected_updated_at: 'stale' })).status, 200);
+    assert.equal(h.db().schedules[0].stop_generation, 1);
+    assert.equal((await h.call('delete /api/schedules/:id', {}, { ...user, id: 'other' })).status, 404);
+    assert.equal((await h.call('put /api/schedules/:id', { active: false }, { ...user, id: 'other' })).status, 404);
     assert.equal(h.db().schedules[0].message, 'old');
+    assert.equal((await h.call('delete /api/schedules/:id')).status, 200);
+    assert.equal(h.db().schedules.length, 0);
     h.busy.clear();
     assert.equal((await h.call('put /api/schedules/:id', {}, { ...user, id: 'other' })).status, 404);
 });
@@ -403,3 +408,66 @@ test('group refresh uses the complete Evolution list even when chats return only
     assert.equal(cached.length, 2);
     assert.equal(db.groupsCache['admin-wa'].groups.length, 2);
 });
+
+
+function cancellationHarness({ beforeStart, onWait, onPost } = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-cancel-test-'));
+    const executions = createExecutionStore(path.join(dir, 'runs.json'));
+    const schedule = { ...structuredClone(original), recipients: [
+        { id: 'a', name: 'A', type: 'group' }, { id: 'b', name: 'B', type: 'group' }] };
+    let db = { schedules: [structuredClone(schedule)], history: [] };
+    const sent = [];
+    const context = { executions, ADMIN_INSTANCE: '', EVOLUTION_API_URL: 'http://fake', APP_URL: 'http://app',
+        path, diagnostic, evoHeaders: () => ({}),
+        loadDB: () => structuredClone(db), saveDB: async next => { db = structuredClone(next); },
+        axios: { get: async () => ({ data: { state: 'open' } }),
+            post: async (url, body) => { sent.push({ url, body }); if (onPost) onPost(db, sent.length); return { data: { key: { id: 'sent' } } }; } },
+        setTimeout: fn => { if (onWait) onWait(db); fn(); } };
+    vm.runInNewContext(server.slice(server.indexOf('async function sendOne('), server.indexOf('const instanceQueues =')), context);
+    vm.runInNewContext(server.slice(server.indexOf('async function sendToAll('), server.indexOf('// ── CRON ENGINE')), context);
+    return { schedule, sent, db: () => db, async run() {
+        // Capture the immutable job before pause/delete, as the real queue does.
+        db.schedules[0] = structuredClone(schedule);
+        const snapshot = structuredClone(schedule);
+        const id = executions.create(snapshot, '2026-10-07');
+        if (beforeStart) beforeStart(db);
+        await context.sendToAll(snapshot, id);
+        const run = executions.list()[0];
+        fs.rmSync(dir, { recursive: true });
+        return run;
+    } };
+}
+for (const action of ['pause', 'delete', 'pause-reactivate']) {
+    function cancel(db) {
+        if (action === 'delete') db.schedules = [];
+        else { db.schedules[0].active = action === 'pause-reactivate'; db.schedules[0].stop_generation = 1; }
+    }
+    test(`${action} before queued job starts sends nothing`, async () => {
+        const h = cancellationHarness({ beforeStart: cancel });
+        assert.equal((await h.run()).status, 'cancelled');
+        assert.equal(h.sent.length, 0);
+    });
+    test(`${action} during recipient interval prevents the next message`, async () => {
+        const h = cancellationHarness({ onWait: cancel });
+        const run = await h.run();
+        assert.equal(run.status, 'cancelled');
+        assert.equal(h.sent.length, 1);
+        assert.equal(run.results[0].status, 'accepted');
+    });
+    test(`${action} while first request is in flight prevents further requests`, async () => {
+        const h = cancellationHarness({ onPost: cancel });
+        assert.equal((await h.run()).status, 'cancelled');
+        assert.equal(h.sent.length, 1);
+    });
+    test(`${action} during media interval stops extra images`, async () => {
+        const h = cancellationHarness({ onWait: cancel });
+        h.schedule.media_url = 'https://example.com/first.jpg';
+        h.schedule.media_type = 'image';
+        h.schedule.extra_medias = [{ url: 'https://example.com/second.jpg', type: 'image' }];
+        h.schedule.media_delay_ms = 5000;
+        const run = await h.run();
+        assert.equal(run.status, 'cancelled');
+        assert.equal(h.sent.length, 1);
+        assert.equal(run.results[0].media.length, 1);
+    });
+}
