@@ -68,13 +68,15 @@ function routeHarness() {
     let db = { schedules: [structuredClone(original)], history: [] };
     const busy = new Set();
     const store = { list: () => [], };
+    const states = [];
     const context = { app: Object.fromEntries(['get', 'post', 'put', 'delete'].map(method =>
         [method, (url, ...handlers) => { routes[method + ' ' + url] = handlers; }])),
         authMiddleware() {}, adminMiddleware() {}, loadDB: () => structuredClone(db), saveDB: async next => { db = structuredClone(next); },
+        markScheduleState: (id, action) => states.push({ id, action }),
         queuedScheduleIds: busy, validateEdit, validTime: t => /^([01]\d|2[0-3]):[0-5]\d$/.test(t),
         getUserPlan: () => plan, executions: store, summarize, getTimeInZone: () => ({ date: '2026-09-16' }), TIMEZONE: 'UTC' };
     vm.runInNewContext(server.slice(server.indexOf("app.get('/api/schedules'"), server.indexOf("app.post('/api/upload'")), context);
-    return { routes, busy, db: () => db, async call(key, body = {}, who = user) {
+    return { routes, busy, states, db: () => db, async call(key, body = {}, who = user) {
         let status = 200, data;
         const res = { status(n) { status = n; return this; }, json(v) { data = v; } };
         await routes[key].at(-1)({ user: who, body, params: { id: '1' }, query: {} }, res);
@@ -102,10 +104,12 @@ test('busy edit rejected, pause/delete allowed; foreign owner cannot mutate', as
     assert.equal((await h.call('put /api/schedules/:id', { message: 'bad' })).status, 409);
     assert.equal((await h.call('put /api/schedules/:id', { active: false, expected_updated_at: 'stale' })).status, 200);
     assert.equal(h.db().schedules[0].stop_generation, 1);
+    assert.equal(h.states.at(-1).action, 'pause');
     assert.equal((await h.call('delete /api/schedules/:id', {}, { ...user, id: 'other' })).status, 404);
     assert.equal((await h.call('put /api/schedules/:id', { active: false }, { ...user, id: 'other' })).status, 404);
     assert.equal(h.db().schedules[0].message, 'old');
     assert.equal((await h.call('delete /api/schedules/:id')).status, 200);
+    assert.equal(h.states.at(-1).action, 'delete');
     assert.equal(h.db().schedules.length, 0);
     h.busy.clear();
     assert.equal((await h.call('put /api/schedules/:id', {}, { ...user, id: 'other' })).status, 404);
@@ -129,6 +133,7 @@ test('real sending loop persists mixed results and keeps accepted separate from 
     const context = { executions, ADMIN_INSTANCE: '', EVOLUTION_API_URL: 'http://fake',
         axios: { get: async () => ({ data: { instance: { state: 'open' } } }) }, evoHeaders: () => ({}),
         loadDB: () => structuredClone(db), saveDB: async next => { db = structuredClone(next); },
+        readScheduleState: () => ({ version: '', action: '' }),
         sendOne: async () => ({ status: ++calls === 1 ? 'accepted' : 'error', media: [] }),
         setTimeout: fn => fn() };
     vm.runInNewContext(server.slice(server.indexOf('async function sendToAll('), server.indexOf('// ── CRON ENGINE')), context);
@@ -148,7 +153,8 @@ test('same WhatsApp jobs serialize, duplicate enqueue is ignored, other WhatsApp
     const started = [];
     const context = { require: () => ({ createExecutionStore, summarize, validateEdit, diagnostic }),
         path, DB_FILE: path.join(dir, 'db.json'), ADMIN_INSTANCE: '',
-        getTimeInZone: () => ({ date: '2026-09-16' }), logger: { error() {} },
+        getTimeInZone: () => ({ date: '2026-09-16' }), logger: { error() {}, warn() {} },
+        claimScheduleRun: () => 'claim', discardScheduleClaim() {}, readScheduleState: () => ({ version: '', action: '' }),
         sendToAll: s => { started.push(s.id); return new Promise(resolve => releases.push(resolve)); } };
     vm.runInNewContext(server.slice(server.indexOf('const instanceQueues ='), server.indexOf('async function sendToAll(')), context);
     const first = context.enqueueSchedule(original);
@@ -162,6 +168,24 @@ test('same WhatsApp jobs serialize, duplicate enqueue is ignored, other WhatsApp
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(started, [1, 3, 2]);
     releases[2](); await second;
+    fs.rmSync(dir, { recursive: true });
+});
+
+test('daily claim is atomic across workers and a new day can run again', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-claim-test-'));
+    const context = {
+        fs, path, process, Date,
+        randomUUID: () => Math.random().toString(36).slice(2),
+        SCHEDULE_STATE_DIR: path.join(dir, 'states'),
+        DAILY_CLAIMS_DIR: path.join(dir, 'claims')
+    };
+    vm.runInNewContext(
+        server.slice(server.indexOf('function safeScheduleKey('), server.indexOf('function loadDB(')),
+        context
+    );
+    assert.ok(context.claimScheduleRun(123, '2026-10-21'));
+    assert.equal(context.claimScheduleRun(123, '2026-10-21'), null);
+    assert.ok(context.claimScheduleRun(123, '2026-10-22'));
     fs.rmSync(dir, { recursive: true });
 });
 
@@ -416,12 +440,14 @@ function cancellationHarness({ beforeStart, onWait, onPost } = {}) {
     const schedule = { ...structuredClone(original), recipients: [
         { id: 'a', name: 'A', type: 'group' }, { id: 'b', name: 'B', type: 'group' }] };
     let db = { schedules: [structuredClone(schedule)], history: [] };
+    const state = { version: '', action: '' };
     const sent = [];
     const context = { executions, ADMIN_INSTANCE: '', EVOLUTION_API_URL: 'http://fake', APP_URL: 'http://app',
         path, diagnostic, evoHeaders: () => ({}),
         loadDB: () => structuredClone(db), saveDB: async next => { db = structuredClone(next); },
+        readScheduleState: () => structuredClone(state),
         axios: { get: async () => ({ data: { state: 'open' } }),
-            post: async (url, body) => { sent.push({ url, body }); if (onPost) onPost(db, sent.length); return { data: { key: { id: 'sent' } } }; } },
+            post: async (url, body) => { sent.push({ url, body }); if (onPost) onPost(db, sent.length, state); return { data: { key: { id: 'sent' } } }; } },
         setTimeout: fn => { if (onWait) onWait(db); fn(); } };
     vm.runInNewContext(server.slice(server.indexOf('async function sendOne('), server.indexOf('const instanceQueues =')), context);
     vm.runInNewContext(server.slice(server.indexOf('async function sendToAll('), server.indexOf('// ── CRON ENGINE')), context);
@@ -429,6 +455,7 @@ function cancellationHarness({ beforeStart, onWait, onPost } = {}) {
         // Capture the immutable job before pause/delete, as the real queue does.
         db.schedules[0] = structuredClone(schedule);
         const snapshot = structuredClone(schedule);
+        snapshot._cancellation_version = state.version;
         const id = executions.create(snapshot, '2026-10-07');
         if (beforeStart) beforeStart(db);
         await context.sendToAll(snapshot, id);
@@ -437,6 +464,21 @@ function cancellationHarness({ beforeStart, onWait, onPost } = {}) {
         return run;
     } };
 }
+
+test('persistent cancellation epoch stops an old worker even when its DB copy still says active', async () => {
+    const h = cancellationHarness({
+        onPost: (_db, count, state) => {
+            if (count === 1) {
+                state.version = 'pause-from-another-worker';
+                state.action = 'pause';
+            }
+        }
+    });
+    const run = await h.run();
+    assert.equal(h.sent.length, 1);
+    assert.equal(run.status, 'cancelled');
+});
+
 for (const action of ['pause', 'delete', 'pause-reactivate']) {
     function cancel(db) {
         if (action === 'delete') db.schedules = [];
