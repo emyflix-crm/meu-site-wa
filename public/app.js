@@ -4,6 +4,7 @@ let selectedRecipients = [];
 let editingSchedule = null;
 let historyTimer = null;
 let schedules = [], currentTab = 'groups', dashFilter = 'all';
+let quotaState = null;
 let userInstances = [], currentQRInstance = null;
 let crmClients = [], crmTemplates = [], templatePickerClientId = null;
 let crmContacts = [], crmVisibleContacts = [], crmExpiryFilter = 'today', crmClientPage = 1;
@@ -87,11 +88,42 @@ function renderTrialBanner() {
             textEl.textContent = '⚠️ Seu teste de 7 dias expirou! Faça upgrade para continuar.';
             textEl.style.color = '#ef4444';
         } else {
-            textEl.textContent = `⚡ Teste Grátis (${diffDays} dias restantes) • Limite: até ${maxG} grupos por envio`;
+            textEl.textContent = `⚡ Teste Grátis (${diffDays} dias restantes) • ${maxG} envios compartilhados por dia`;
         }
     } else {
-        textEl.textContent = `⭐ ${planName} • Limite: ${maxG} grupos por agendamento • Máx. ${maxS} agendamentos • ${maxI} WhatsApp(s)`;
+        textEl.textContent = `⭐ ${planName} • ${maxG} envios compartilhados por dia • Máx. ${maxS} agendamentos • ${maxI} WhatsApp(s)`;
     }
+}
+
+function recipientSelectionLimit() {
+    if (CURRENT_USER.role === 'admin' || CURRENT_USER.plan === 'unlimited') return 99999;
+    const currentReservation = editingSchedule?.recipients?.length || 0;
+    return Math.max(0, Number(quotaState?.available ?? CURRENT_USER.max_recipients ?? 50) + currentReservation);
+}
+
+async function loadQuota() {
+    try {
+        const response = await authFetch(`${API}/api/quota`);
+        if (!response.ok) return;
+        quotaState = await response.json();
+        const values = {
+            'quota-instances': `${quotaState.instances_used} de ${quotaState.instances_limit}`,
+            'quota-schedules': `${quotaState.schedules_used} de ${quotaState.schedules_limit}`,
+            'quota-available': `${quotaState.available} de ${quotaState.limit}`,
+            'schedule-quota-instances': `${quotaState.instances_used} de ${quotaState.instances_limit}`,
+            'schedule-quota-schedules': `${quotaState.schedules_used} de ${quotaState.schedules_limit}`,
+            'schedule-quota-available': `${quotaState.available} de ${quotaState.limit}`
+        };
+        Object.entries(values).forEach(([id, value]) => {
+            const node = document.getElementById(id);
+            if (node) node.textContent = value;
+        });
+        const detail = document.getElementById('quota-detail');
+        if (detail) detail.textContent = quotaState.bonus
+            ? `${quotaState.reserved} reservados • +${quotaState.bonus} extras hoje`
+            : `${quotaState.reserved} reservados • renova à meia-noite`;
+        updateSelectedTags();
+    } catch {}
 }
 
 // ── Navigation ───────────────────────────────────────────
@@ -148,9 +180,9 @@ function updateCustomPlan() {
     const linkEl = document.getElementById('custom-plan-link');
 
     if (priceEl) priceEl.innerHTML = 'R$ ' + priceText + '<span style="font-size:12px;color:var(--text3);font-weight:400;">/mês</span>';
-    if (summaryEl) summaryEl.innerHTML = '✓ ' + whatsapps + ' WhatsApp' + (whatsapps > 1 ? 's' : '') + ' &nbsp; • &nbsp; até ' + groups.toLocaleString('pt-BR') + ' grupos &nbsp; • &nbsp; ' + schedules + ' agendamentos ativos';
+    if (summaryEl) summaryEl.innerHTML = '✓ ' + whatsapps + ' WhatsApp' + (whatsapps > 1 ? 's' : '') + ' &nbsp; • &nbsp; até ' + groups.toLocaleString('pt-BR') + ' envios por dia &nbsp; • &nbsp; ' + schedules + ' agendamentos ativos';
 
-    const message = 'Olá! Quero solicitar um plano personalizado do EmyFlix WA com ' + whatsapps + ' WhatsApp' + (whatsapps > 1 ? 's' : '') + ', até ' + groups + ' grupos e ' + schedules + ' agendamentos ativos. Valor mostrado: R$ ' + priceText + ' por mês.';
+    const message = 'Olá! Quero solicitar um plano personalizado do EmyFlix WA com ' + whatsapps + ' WhatsApp' + (whatsapps > 1 ? 's' : '') + ', até ' + groups + ' envios por dia e ' + schedules + ' agendamentos ativos. Valor mostrado: R$ ' + priceText + ' por mês.';
     if (linkEl) linkEl.href = 'https://wa.me/447404200049?text=' + encodeURIComponent(message);
 }
 
@@ -645,9 +677,9 @@ function useCampaignForSchedule(campaignId) {
     const c = campaigns.find(item => item.id === campaignId);
     if (!c) return;
 
-    const maxG = CURRENT_USER.max_recipients || 50;
+    const maxG = recipientSelectionLimit();
     if (CURRENT_USER.role !== 'admin' && (c.recipients || []).length > maxG) {
-        showToast(`⚠️ Esta campanha tem ${(c.recipients || []).length} grupos, mas seu plano permite até ${maxG}. Faça upgrade!`, 'warning');
+        showToast(`⚠️ Esta campanha tem ${(c.recipients || []).length} destinatários, mas você possui ${maxG} envios disponíveis para este agendamento.`, 'warning');
         return;
     }
 
@@ -746,10 +778,10 @@ function selectWholeCampaign(campaignId) {
     const c = campaigns.find(item => item.id === campaignId);
     if (!c) return;
 
-    const maxG = CURRENT_USER.max_recipients || 50;
+    const maxG = recipientSelectionLimit();
     const totalPotential = (c.recipients || []).length;
     if (CURRENT_USER.role !== 'admin' && totalPotential > maxG) {
-        showToast(`⚠️ Seu plano permite no máximo ${maxG} grupos por agendamento. Esta campanha possui ${totalPotential}! Faça upgrade para enviar para mais.`, 'error');
+        showToast(`⚠️ Você possui ${maxG} envios disponíveis para este agendamento. Esta campanha possui ${totalPotential} destinatários.`, 'error');
         return;
     }
 
@@ -768,9 +800,9 @@ function toggleRecipient(id, name, type) {
     if (exists >= 0) {
         selectedRecipients.splice(exists, 1);
     } else {
-        const maxG = CURRENT_USER.max_recipients || 50;
+        const maxG = recipientSelectionLimit();
         if (CURRENT_USER.role !== 'admin' && selectedRecipients.length >= maxG) {
-            showToast(`⚠️ Limite do seu plano atingido (${maxG} grupos)! Faça upgrade para o próximo plano para enviar para mais!`, 'warning');
+            showToast(`⚠️ Saldo diário atingido. Você possui ${maxG} envios disponíveis para este agendamento.`, 'warning');
             return;
         }
         selectedRecipients.push({ id, name, type });
@@ -795,12 +827,12 @@ function clearAllRecipients() {
 
 function updateSelectedTags() {
     const isAdmin = CURRENT_USER.role === 'admin' || CURRENT_USER.plan === 'unlimited';
-    const maxG = isAdmin ? 99999 : (CURRENT_USER.max_recipients || 50);
+    const maxG = isAdmin ? 99999 : recipientSelectionLimit();
     const countEl = document.getElementById('selected-count');
     if (countEl) {
         countEl.textContent = isAdmin 
             ? `👑 ${selectedRecipients.length} selecionados (Acesso Livre)` 
-            : `${selectedRecipients.length}/${maxG} grupos`;
+            : `${selectedRecipients.length}/${maxG} envios disponíveis`;
     }
     const tagsEl = document.getElementById('selected-tags');
     if (tagsEl) {
@@ -881,10 +913,10 @@ function updateLivePreview() {
     const sumEnd = document.getElementById('summary-end-time');
 
     const isAdmin = CURRENT_USER.role === 'admin' || CURRENT_USER.plan === 'unlimited';
-    const maxG = isAdmin ? 99999 : (CURRENT_USER.max_recipients || 50);
+    const maxG = isAdmin ? 99999 : recipientSelectionLimit();
     if (sumRec) sumRec.textContent = isAdmin
         ? `${selectedRecipients.length} selecionados (Livre Acesso)`
-        : `${selectedRecipients.length} de ${maxG} permitidos`;
+        : `${selectedRecipients.length} de ${maxG} envios disponíveis`;
     if (sumTime) sumTime.textContent = time !== '--:--' ? time : 'Não definido';
 
     const freqVal = document.getElementById('schedule-frequency')?.value || 'daily';
@@ -942,6 +974,7 @@ function selectDelay(delay, el) {
 // ── Upload ────────────────────────────────────────────────
 let mediaItems = [];
 let mediaDelayMode = 'immediate';
+let replacingMediaIndex = null;
 
 function handleFileSelect(e) { uploadFile(e.target.files[0]); }
 function handleDrop(e) {
@@ -967,18 +1000,28 @@ async function uploadFile(file) {
             const err = await res.json().catch(() => ({}));
             showToast('Erro: ' + (err.error || res.status), 'error');
             if (area) area.classList.remove('uploading');
+            replacingMediaIndex = null;
             return;
         }
         const data = await res.json();
         if (data.url) {
-            mediaItems.push({ url: data.url, type: data.isVideo ? 'video' : 'image', text: '', name: file.name });
+            const uploaded = { url: data.url, type: data.isVideo ? 'video' : 'image', text: '', name: file.name };
+            if (replacingMediaIndex !== null && mediaItems[replacingMediaIndex]) {
+                uploaded.text = mediaItems[replacingMediaIndex].text || '';
+                mediaItems[replacingMediaIndex] = uploaded;
+                showToast('✅ Mídia substituída. Revise a legenda antes de salvar.', 'success');
+            } else {
+                mediaItems.push(uploaded);
+                showToast('✅ ' + file.name + ' adicionado!', 'success');
+            }
+            replacingMediaIndex = null;
             const fileInp = document.getElementById('media-file');
             if (fileInp) fileInp.value = '';
             renderMediaList();
             updateLivePreview();
-            showToast('✅ ' + file.name + ' adicionado!', 'success');
         }
     } catch { showToast('Erro no upload', 'error'); }
+    replacingMediaIndex = null;
     if (area) area.classList.remove('uploading');
 }
 
@@ -1001,7 +1044,10 @@ function renderMediaList() {
                     ${m.type === 'image' ? `<img src="${escHtml(m.url)}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;flex-shrink:0;" alt="">` : `<span style="font-size:24px;">🎥</span>`}
                     <span style="font-size:12.5px;font-weight:500;text-overflow:ellipsis;overflow:hidden;white-space:nowrap">${escHtml(m.name)}</span>
                 </div>
-                <button type="button" class="btn btn-danger" style="font-size:11px;padding:3px 8px;flex-shrink:0;" onclick="removeMedia(${i})">✕</button>
+                <div style="display:flex;gap:5px;flex-shrink:0;">
+                    <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 8px;" onclick="replaceMedia(${i})">Trocar</button>
+                    <button type="button" class="btn btn-danger" style="font-size:11px;padding:3px 8px;" onclick="removeMedia(${i})">✕</button>
+                </div>
             </div>
             <textarea
                 rows="2"
@@ -1017,6 +1063,12 @@ function removeMedia(i) {
     mediaItems.splice(i, 1);
     renderMediaList();
     updateLivePreview();
+}
+
+function replaceMedia(index) {
+    if (!mediaItems[index]) return;
+    replacingMediaIndex = index;
+    document.getElementById('media-file')?.click();
 }
 
 function updateMediaText(index, text) {
@@ -1097,9 +1149,9 @@ async function createSchedule(e) {
     e.preventDefault();
     if (!selectedRecipients.length) { showToast('Selecione pelo menos um grupo ou contato!', 'error'); return; }
 
-    const maxG = CURRENT_USER.max_recipients || 50;
+    const maxG = recipientSelectionLimit();
     if (CURRENT_USER.role !== 'admin' && selectedRecipients.length > maxG) {
-        showToast(`⚠️ Seu plano permite até ${maxG} grupos por envio (você selecionou ${selectedRecipients.length}). Faça upgrade!`, 'error');
+        showToast(`⚠️ Você possui ${maxG} envios disponíveis para este agendamento (selecionou ${selectedRecipients.length}).`, 'error');
         return;
     }
 
@@ -1150,6 +1202,7 @@ function resetScheduleEditor() {
     document.getElementById('schedule-form').reset();
     selectedRecipients = [];
     mediaItems = [];
+    replacingMediaIndex = null;
     document.querySelector('#page-schedule h1').textContent = 'Criar Agendamento';
     document.getElementById('submit-btn').textContent = 'Criar Agendamento';
     document.querySelectorAll('.freq-option').forEach((el, i) => el.classList.toggle('selected', i === 0));
@@ -1221,6 +1274,7 @@ async function loadSchedules() {
         const activeEl = document.getElementById('stat-active');
         if (activeEl) activeEl.textContent = schedules.filter(s => s.active).length;
         renderSchedules();
+        await loadQuota();
     } catch { }
 }
 
@@ -2092,7 +2146,7 @@ function renderAdminUsers() {
                 <td data-label="Cliente"><div class="client-cell"><span class="client-avatar ${isAdmin ? 'admin' : ''}">${isAdmin ? 'A' : escHtml((u.name || 'C')[0].toUpperCase())}</span><div><strong>${escHtml(u.name)}</strong><small>${escHtml(u.email)}</small></div></div></td>
                 <td data-label="Instância"><div class="instance-cell"><span class="wa-icon ${connected ? 'connected' : 'disconnected'}">◉</span><div><strong>${escHtml(u.instance_name || 'N/A')}</strong><small>EmyFlix WA</small></div></div></td>
                 <td data-label="Plano"><span class="plan-pill ${escHtml(planKey)}">${escHtml(planTitle)}</span></td>
-                <td data-label="Uso / Limites"><div class="limit-grid"><span><b>${u.max_schedules}</b> agendamentos</span><span><b>${u.max_recipients}</b> grupos</span></div></td>
+                <td data-label="Uso / Limites"><div class="limit-grid"><span><b>${u.daily_quota?.available ?? u.max_recipients}</b> de ${u.daily_quota?.limit ?? u.max_recipients} envios hoje</span><span><b>${u.max_schedules}</b> agendamentos</span>${u.daily_quota?.bonus ? `<span><b>+${u.daily_quota.bonus}</b> extras hoje</span>` : ''}</div></td>
                 <td data-label="Expiração"><span>${expires}</span></td>
                 <td data-label="Status"><span class="status-pill ${connected ? 'success' : 'danger'}"><i></i>${connected ? 'Conectado' : 'Desconectado'}</span></td>
                 <td data-label="Ações"><button type="button" class="table-action" data-admin-menu="${escHtml(u.id)}" title="Abrir ações">•••</button></td>
@@ -2136,6 +2190,12 @@ function openAdminEditModal(userId) {
     document.getElementById('admin-edit-max-recipients').value = u.max_recipients || 50;
     document.getElementById('admin-edit-active').value = u.active !== false ? 'true' : 'false';
     document.getElementById('admin-edit-password').value = '';
+    document.getElementById('admin-edit-daily-bonus').value = '';
+    const quota = u.daily_quota;
+    const quotaSummary = document.getElementById('admin-edit-quota-summary');
+    if (quotaSummary) quotaSummary.textContent = quota
+        ? `${quota.available} disponíveis de ${quota.limit} hoje • ${quota.reserved} reservados${quota.bonus ? ` • +${quota.bonus} extras` : ''}`
+        : 'Saldo diário indisponível.';
 
     const modal = document.getElementById('modal-admin-edit');
     if (modal) modal.style.display = 'flex';
@@ -2200,6 +2260,29 @@ async function saveAdminEdit() {
         }
     } catch (e) {
         showToast('Erro de conexão: ' + e.message, 'error');
+    }
+}
+
+async function addAdminDailyQuota() {
+    const id = document.getElementById('admin-edit-id').value;
+    const amount = Number.parseInt(document.getElementById('admin-edit-daily-bonus').value, 10);
+    if (!id || !Number.isInteger(amount) || amount < 1) {
+        showToast('Informe a quantidade de envios que deseja repor hoje.', 'warning');
+        return;
+    }
+    try {
+        const response = await authFetch(`/admin/users/${id}/daily-quota`, {
+            method: 'POST', body: JSON.stringify({ amount })
+        });
+        const data = await response.json();
+        if (!response.ok) return showToast(data.error || 'Não foi possível adicionar os envios.', 'error');
+        const summary = document.getElementById('admin-edit-quota-summary');
+        if (summary) summary.textContent = `${data.quota.available} disponíveis de ${data.quota.limit} hoje • ${data.quota.reserved} reservados • +${data.quota.bonus} extras`;
+        document.getElementById('admin-edit-daily-bonus').value = '';
+        showToast(`✅ ${amount} envios adicionados somente para hoje.`, 'success');
+        await loadAdminUsers();
+    } catch (error) {
+        showToast('Erro de conexão: ' + error.message, 'error');
     }
 }
 

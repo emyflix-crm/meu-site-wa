@@ -82,7 +82,6 @@ function validateEdit(current, body, user, plan, allSchedules) {
         !Number.isFinite(next.media_delay_ms) || next.media_delay_ms < 0 || next.media_delay_ms > 3600000)
         throw new Error('Configuração de mídia inválida.');
     if (user.role !== 'admin') {
-        if (next.recipients.length > (user.max_recipients || plan.max_recipients)) throw new Error('Limite de destinatários atingido.');
         const instances = [user.instance_name, ...(user.instances || []).map(i => typeof i === 'string' ? i : i.name)];
         if (!next.instance_name || !instances.includes(next.instance_name)) throw new Error('WhatsApp não pertence à sua conta.');
         const active = allSchedules.filter(s => s.userId === user.id && s.id !== current.id && s.active).length;
