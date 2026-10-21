@@ -4,6 +4,7 @@ const axios = require('axios');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const { randomUUID } = require('crypto');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -30,6 +31,9 @@ const DB_FILE     = process.env.DB_FILE    || './data.json';
 const USERS_FILE  = process.env.USERS_FILE || './users.json';
 const LOGS_DIR    = process.env.LOGS_DIR   || './logs';
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'public', 'uploads');
+const SCHEDULER_RUNTIME_DIR = process.env.SCHEDULER_RUNTIME_DIR || path.join(path.dirname(DB_FILE), 'scheduler-runtime');
+const SCHEDULE_STATE_DIR = path.join(SCHEDULER_RUNTIME_DIR, 'schedule-state');
+const DAILY_CLAIMS_DIR = path.join(SCHEDULER_RUNTIME_DIR, 'daily-claims');
 
 // ── Planos & Limites Padrão ───────────────────────────────
 const PLANS = {
@@ -159,12 +163,69 @@ function queueDBWrite(fn) {
     return dbWriteQueue;
 }
 
+function safeScheduleKey(id) {
+    return String(id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 160);
+}
+
+function scheduleStatePath(id) {
+    return path.join(SCHEDULE_STATE_DIR, `${safeScheduleKey(id)}.json`);
+}
+
+function readScheduleState(id) {
+    try {
+        return JSON.parse(fs.readFileSync(scheduleStatePath(id), 'utf8'));
+    } catch {
+        return { version: '', action: '' };
+    }
+}
+
+// This file is intentionally separate from data.json. A sender in another
+// process can never overwrite a pause/delete signal with an older DB snapshot.
+function markScheduleState(id, action) {
+    fs.mkdirSync(SCHEDULE_STATE_DIR, { recursive: true });
+    const state = {
+        version: `${Date.now()}-${randomUUID()}`,
+        action,
+        changed_at: new Date().toISOString()
+    };
+    const target = scheduleStatePath(id);
+    const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify(state));
+    fs.renameSync(temporary, target);
+    return state;
+}
+
+// Atomic create (wx) is the cross-process guard. The claim remains for the
+// whole local calendar day so a restart or a second replica cannot replay it.
+function claimScheduleRun(id, date) {
+    fs.mkdirSync(DAILY_CLAIMS_DIR, { recursive: true });
+    const target = path.join(DAILY_CLAIMS_DIR, `${safeScheduleKey(id)}-${date}.claim`);
+    try {
+        const fd = fs.openSync(target, 'wx');
+        fs.writeFileSync(fd, JSON.stringify({ schedule_id: id, date, pid: process.pid, claimed_at: new Date().toISOString() }));
+        fs.closeSync(fd);
+        return target;
+    } catch (error) {
+        if (error.code === 'EEXIST') return null;
+        throw error;
+    }
+}
+
+function discardScheduleClaim(claimPath) {
+    if (!claimPath) return;
+    try { fs.unlinkSync(claimPath); } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+    }
+}
+
 function loadDB() {
     const dir = path.dirname(DB_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ schedules: [], history: [], campaigns: [], groupsCache: {}, crmClients: [], messageTemplates: [] }, null, 2));
     try {
         const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+        // A delete tombstone wins over stale data.json writes from another process.
+        data.schedules = (data.schedules || []).filter(schedule => readScheduleState(schedule.id).action !== 'delete');
         if (!data.campaigns) data.campaigns = [];
         if (!data.groupsCache) data.groupsCache = {};
         if (!data.crmClients) data.crmClients = [];
@@ -179,8 +240,9 @@ function saveDB(data) {
     // Commit before returning so another handler cannot read an outdated snapshot.
     try {
         if (data.history && data.history.length > 2000) data.history = data.history.slice(-2000);
-        fs.writeFileSync(DB_FILE + '.tmp', JSON.stringify(data, null, 2));
-        fs.renameSync(DB_FILE + '.tmp', DB_FILE);
+        const temporary = `${DB_FILE}.${process.pid}.${randomUUID()}.tmp`;
+        fs.writeFileSync(temporary, JSON.stringify(data, null, 2));
+        fs.renameSync(temporary, DB_FILE);
         return Promise.resolve();
     } catch (err) { throw err; }
 }
@@ -1073,6 +1135,9 @@ app.put('/api/schedules/:id', authMiddleware, async (req, res) => {
     if (statusOnly) {
         if (typeof req.body.active !== 'boolean')
             return res.status(400).json({ error: 'Estado do agendamento inválido.' });
+        // Write the cancellation epoch first. Running workers observe it even
+        // if another process still holds an outdated copy of data.json.
+        markScheduleState(db.schedules[idx].id, req.body.active ? 'active' : 'pause');
         db.schedules[idx].active = req.body.active;
         if (!req.body.active) db.schedules[idx].stop_generation = (db.schedules[idx].stop_generation || 0) + 1;
         db.schedules[idx].updated_at = new Date().toISOString();
@@ -1083,6 +1148,9 @@ app.put('/api/schedules/:id', authMiddleware, async (req, res) => {
     try {
         db.schedules[idx] = validateEdit(db.schedules[idx], req.body, req.user, getUserPlan(req.user), db.schedules);
     } catch (e) { return res.status(400).json({ error: e.message }); }
+    if (typeof req.body.active === 'boolean') {
+        markScheduleState(db.schedules[idx].id, req.body.active ? 'active' : 'pause');
+    }
     db.schedules[idx].updated_at = new Date().toISOString();
     await saveDB(db);
     res.json({ success: true });
@@ -1093,6 +1161,9 @@ app.delete('/api/schedules/:id', authMiddleware, (req, res) => {
     const schedule = db.schedules.find(s => s.id == req.params.id && (req.user.role === 'admin' || s.userId === req.user.id));
     if (!schedule) return res.status(404).json({ error: 'Não encontrado' });
     const sending = queuedScheduleIds.has(String(schedule.id));
+
+    // Tombstone before deletion: every running process stops at its next check.
+    markScheduleState(schedule.id, 'delete');
 
     if (schedule.media_url && !sending) {
         try {
@@ -1241,11 +1312,22 @@ function enqueueSchedule(schedule) {
     const scheduleKey = String(schedule.id);
 
     if (queuedScheduleIds.has(scheduleKey)) return instanceQueues.get(instanceKey) || Promise.resolve();
+    const runDate = getTimeInZone(schedule.timezone || TIMEZONE).date;
+    const claimPath = claimScheduleRun(schedule.id, runDate);
+    if (!claimPath) {
+        logger.warn('Duplicate schedule execution blocked', { scheduleId: schedule.id, date: runDate });
+        return Promise.resolve();
+    }
     queuedScheduleIds.add(scheduleKey);
     const snapshot = JSON.parse(JSON.stringify(schedule));
+    snapshot._cancellation_version = readScheduleState(schedule.id).version;
     let runId;
-    try { runId = executions.create(snapshot, getTimeInZone(snapshot.timezone || TIMEZONE).date); }
-    catch (error) { queuedScheduleIds.delete(scheduleKey); throw error; }
+    try { runId = executions.create(snapshot, runDate); }
+    catch (error) {
+        queuedScheduleIds.delete(scheduleKey);
+        discardScheduleClaim(claimPath);
+        throw error;
+    }
 
     const previous = instanceQueues.get(instanceKey) || Promise.resolve();
     let current;
@@ -1267,6 +1349,9 @@ function enqueueSchedule(schedule) {
 
 async function sendToAll(schedule, runId) {
     const canContinue = () => {
+        const state = readScheduleState(schedule.id);
+        if (state.version !== (schedule._cancellation_version || '')) return false;
+        if (state.action === 'delete' || state.action === 'pause') return false;
         const current = loadDB().schedules.find(s => String(s.id) === String(schedule.id));
         return Boolean(current?.active && (current.stop_generation || 0) === (schedule.stop_generation || 0));
     };
